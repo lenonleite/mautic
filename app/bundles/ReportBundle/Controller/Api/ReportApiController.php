@@ -5,6 +5,7 @@ namespace Mautic\ReportBundle\Controller\Api;
 use DateTimeImmutable;
 use DateTimeZone;
 use Mautic\ApiBundle\Controller\CommonApiController;
+use Mautic\CoreBundle\Security\Exception\PermissionException;
 use Mautic\ReportBundle\Entity\Report;
 use Symfony\Component\Form\FormFactoryInterface;
 use Symfony\Component\HttpFoundation\Response;
@@ -41,10 +42,30 @@ class ReportApiController extends CommonApiController
      */
     public function getReportAction($id)
     {
-        $entity = $this->model->getEntity($id);
+        $entity        = $this->model->getEntity($id);
+        $repo          = $this->model->getRepository();
+        $tableAlias    = $repo->getTableAlias();
 
         if (!$entity instanceof $this->entityClass) {
             return $this->notFound();
+        }
+
+        try {
+            if (!$this->security->isGranted($this->permissionBase.':view')) {
+                return $this->accessDenied();
+            }
+        } catch (PermissionException $e) {
+            return $this->accessDenied($e->getMessage());
+        }
+
+        if ($this->security->checkPermissionExists($this->permissionBase.':viewother')
+            && !$this->security->isGranted($this->permissionBase.':viewother')
+        ) {
+            $this->listFilters[] = [
+                'column' => $tableAlias.'.createdBy',
+                'expr'   => 'eq',
+                'value'  => $this->user->getId(),
+            ];
         }
 
         $reportData = $this->model->getReportData($entity, $this->formFactory, $this->getOptionsFromRequest());
