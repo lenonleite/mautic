@@ -60,7 +60,7 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
         $this->assertNull($freshLead1->getPosition());
         $this->assertNotSame($lead1->getField('instagram'), $freshLead1->getField('instagram'));
         $this->assertNotSame($lead1->getEmail(), $freshLead1->getEmail());
-        $this->assertStringContainsString('@domain.example', $freshLead1->getEmail());
+        $this->assertStringContainsString('@ano.nym', $freshLead1->getEmail());
     }
 
     private function createCampaign(): Campaign

@@ -4,7 +4,7 @@ namespace Mautic\LeadBundle\Helper;
 
 class AnonymizeHelper
 {
-    public const PRE_DEFINED_DOMAIN = 'domain.example';
+    public const PRE_DEFINED_DOMAIN = 'ano.nym';
 
     public static function email(string $email, string $newDomain = self::PRE_DEFINED_DOMAIN): string|false
     {
