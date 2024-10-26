@@ -22,6 +22,7 @@
   gap: 3px;
   background-color: var(--layer);
   border-radius: var(--border-radius-sm);
+  position: relative;
 
   &.alert-success,
   &.alert-info,
@@ -37,18 +38,36 @@
       line-height: .5em;
       top: .15em;
     }
+
+    &.notification {
+      position: relative;
+      &:before {
+        position: absolute;
+        top: 20px;
+        left: 10px;
+        font-size: 18px;
+      }
+      .close {
+        position: absolute;
+        top: 10px;
+        right: 0;
+      }
+    }
+  }
+
+  .close {
+    font-size: 13px;
+    position: absolute;
+    right: 12px;
+    top: 18px;
   }
 
   &:has(.btn) { align-items: center; }
 }
 
-.nav-tabs-contained + .tab-content,
-.nav-tabs-contained + * > .tab-content {
-  .alert { background-color: var(--layer-alternate); }
-}
-
 .alert-success {
   border-color: var(--support-success);
+  background-color: var(--notification-background-success);
 
   &:not([class*="col-"]):before {
     content: '\EB80';
@@ -58,6 +77,7 @@
 
 .alert-info {
   border-color: var(--support-info);
+  background-color: var(--notification-background-info);
 
   &:not([class*="col-"]):before {
     content: '\F448';
@@ -67,6 +87,7 @@
 
 .alert-warning {
   border-color: var(--support-warning);
+  background-color: var(--notification-background-warning);
 
   &:not([class*="col-"]):before {
     content: '\ECA0';
@@ -76,6 +97,7 @@
 
 .alert-danger {
   border-color: var(--support-error);
+  background-color: var(--notification-background-error);
 
   &:not([class*="col-"]):before {
     content: '\ED94';
@@ -107,9 +129,9 @@
 
   a {
     font-weight: 700;
-    color: lighten(@mautic-primary, 10%);
+    &,
     &:hover {
-      color: lighten(@mautic-primary, 30%);
+      color: var(--text-inverse);
     }
   }
 
@@ -152,8 +174,6 @@
 }
 
 .alert-growl-buttons {
-  margin-top: 10px;
-
   .btn + .btn {
     margin-left: 5px;
   }
@@ -164,9 +184,4 @@
   color: var(--text-inverse);
   margin-left: 10px;
   font-weight: normal;
-}
-
-.alert .close {
-  font-size: (@font-size-base);
-  margin-left: 10px;
 }

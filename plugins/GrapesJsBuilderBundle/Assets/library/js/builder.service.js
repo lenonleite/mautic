@@ -279,6 +279,8 @@ export default class BuilderService {
       content: '<mj-button href="https://">Button</mj-button>',
     });
 
+    this.removeSelectedElementsEmailMjml();
+
     return this.editor;
   }
 
@@ -287,7 +289,7 @@ export default class BuilderService {
     // Browsers only recognize explicit self-closing tags like <img /> and <br />, leading to rendering problems.
     // This can be reverted once the issue with self-closing tags is resolved in grapesjs-mjml.
     // See: https://github.com/GrapesJS/mjml/issues/149
-    const voidTypes = ['mj-image', 'mj-divider', 'mj-font'];
+    const voidTypes = ['mj-image', 'mj-divider', 'mj-font', 'mj-spacer'];
     voidTypes.forEach(function(component) {
       editor.DomComponents.addType(component, {
         model: {
@@ -505,6 +507,16 @@ export default class BuilderService {
         });
       }
     });
+  }
+
+  removeSelectedElementsEmailMjml() {
+
+    // Remove the RAW block (it's just not usable)
+    const rawblock = this.editor.BlockManager.get('mj-raw');
+
+    if (rawblock !== null) {
+      this.editor.BlockManager.remove(rawblock);
+    }
   }
 
   /**
