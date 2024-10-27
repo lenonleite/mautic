@@ -24,6 +24,7 @@ use Mautic\LeadBundle\Model\LeadModel;
 use Mautic\LeadBundle\Tracker\ContactTracker;
 use Mautic\LeadBundle\Tracker\Service\DeviceTrackingService\DeviceTrackingServiceInterface;
 use Mautic\PageBundle\Controller\PublicController;
+use Mautic\PageBundle\Entity\Hit;
 use Mautic\PageBundle\Entity\Page;
 use Mautic\PageBundle\Entity\Redirect;
 use Mautic\PageBundle\Event\TrackingEvent;
@@ -46,6 +47,8 @@ use Symfony\Component\Routing\RouterInterface;
 
 class PublicControllerTest extends MauticMysqlTestCase
 {
+    protected $useCleanupRollback = false;
+
     /**
      * @var MockObject|Container
      */
@@ -664,6 +667,37 @@ class PublicControllerTest extends MauticMysqlTestCase
     {
         $this->client->request('GET', '/mtracking.gif?url=http%3A%2F%2Fmautic.org');
 
+        $this->assertResponseStatusCodeSame(200);
+    }
+
+    public function testTrackingWithParameterDecodeEnabled(): void
+    {
+        $crawler        = $this->client->request(Request::METHOD_GET, '/s/config/edit');
+        $buttonCrawler  =  $crawler->selectButton('config[buttons][save]');
+        $form           = $buttonCrawler->form();
+        $form->setValues(
+            [
+                'config[coreconfig][site_url]'                                       => 'https://mautic-community.local', // required
+                'config[leadconfig][contact_columns]'                                => ['name', 'email', 'id'],
+                'config[trackingconfig][decode_track_parameters]'                    => 1,
+            ]
+        );
+
+        $this->client->submit($form);
+        $this->assertTrue($this->client->getResponse()->isOk());
+        $crawler = $this->client->request(Request::METHOD_GET, '/s/config/edit');
+        $this->assertTrue($this->client->getResponse()->isOk());
+        $buttonCrawler = $crawler->selectButton('config[buttons][save]');
+        $form          = $buttonCrawler->form();
+        $this->assertEquals(1, $form['config[trackingconfig][decode_track_parameters]']->getValue());
+
+        // Disable the default logging in via username and password.
+        $this->clientServer = [];
+        $this->setUpSymfony($this->configParams);
+        $this->client->request(Request::METHOD_GET, '/mtc/event?email=3A%2F%2Fmautic@org%3Ffoo%3Dbar');
+        $hits    = $this->em->getRepository(Hit::class)->findAll();
+        $lastHit = end($hits);
+        $this->assertEquals('3A//mautic@org?foo=bar', $lastHit->getQuery()['email']);
         $this->assertResponseStatusCodeSame(200);
     }
 }

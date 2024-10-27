@@ -138,5 +138,6 @@ return [
         'facebook_pixel_trackingpage_enabled'   => false,
         'facebook_pixel_landingpage_enabled'    => false,
         'do_not_track_404_anonymous'            => false,
+        'decode_track_parameters'               => false,
     ],
 ];

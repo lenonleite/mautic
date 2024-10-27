@@ -402,6 +402,11 @@ class PublicController extends AbstractFormController
     {
         /** @var PageModel $model */
         $model = $this->getModel('page');
+
+        // check if you wanna decode all encoded requests strings
+        if ($this->coreParametersHelper->get('decode_track_parameters')) {
+            $request = $this->decode($request);
+        }
         $model->hitPage(null, $request);
 
         return TrackingPixelHelper::getResponse($request);
@@ -423,12 +428,18 @@ class PublicController extends AbstractFormController
                 'success' => 0,
             ]
         );
+
         if (!$this->security->isAnonymous()) {
             return $notSuccessResponse;
         }
 
         /** @var PageModel $model */
         $model = $this->getModel('page');
+
+        // check if you wanna decode all encoded requests strings
+        if ($this->coreParametersHelper->get('decode_track_parameters')) {
+            $request = $this->decode($request);
+        }
 
         try {
             $model->hitPage(null, $request);
@@ -442,8 +453,7 @@ class PublicController extends AbstractFormController
         $trackingId    = (null === $trackedDevice ? null : $trackedDevice->getTrackingId());
 
         $sessionValue   = $trackingHelper->getCacheItem(true);
-
-        $event = new TrackingEvent($lead, $request, $sessionValue);
+        $event          = new TrackingEvent($lead, $request, $sessionValue);
         $this->dispatcher->dispatch($event, PageEvents::ON_CONTACT_TRACKED);
 
         return new JsonResponse(
@@ -455,6 +465,30 @@ class PublicController extends AbstractFormController
                 'events'    => $event->getResponse()->all(),
             ]
         );
+    }
+
+    private function decode(Request $request): Request
+    {
+        $request->query->replace($this->decodeRequestsEncoded($request->query->all()));
+        $request->request->replace($this->decodeRequestsEncoded($request->request->all()));
+
+        return $request;
+    }
+
+    /**
+     * @param array<string> $query
+     *
+     * @return array<string>
+     */
+    private function decodeRequestsEncoded(array $query): array
+    {
+        foreach ($query as $key => $value) {
+            if (urldecode($value) != $value) {
+                $query[$key] = urldecode($value);
+            }
+        }
+
+        return $query;
     }
 
     /**

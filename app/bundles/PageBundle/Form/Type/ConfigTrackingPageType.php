@@ -61,6 +61,18 @@ class ConfigTrackingPageType extends AbstractType
         );
 
         $builder->add(
+            'decode_track_parameters',
+            YesNoButtonGroupType::class,
+            [
+                'label' => 'mautic.page.config.form.decode_track_parameters',
+                'data'  => isset($options['data']['decode_track_parameters']) && (bool) $options['data']['decode_track_parameters'],
+                'attr'  => [
+                    'tooltip'      => 'mautic.page.config.form.decode_track_parameters.tooltip',
+                ],
+            ]
+        );
+
+        $builder->add(
             'facebook_pixel_id',
             TextType::class,
             [
