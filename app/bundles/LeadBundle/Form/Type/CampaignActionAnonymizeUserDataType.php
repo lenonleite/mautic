@@ -29,39 +29,40 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
             [
                 'label' => 'mautic.lead.lead.events.anonymize_user_data',
                 'data'  => $options['data']['pseudonymize'] ?? false,
+                'attr'  => [
+                    'tooltip' => '',
+                ],
             ]
         );
-        $choices = $this->getFieldChoices();
+        $choicesAnonymize = $this->getFieldChoices(false);
         $builder->add(
             'fieldsToAnonymize',
             FieldListType::class,
             [
                 'label'   => 'mautic.lead.lead.events.fields_to_anonymize',
-                'choices' => $choices,
+                'choices' => $choicesAnonymize,
             ]
         );
+
+        $choicesToDelete = $this->getFieldChoices();
         $builder->add(
             'fieldsToDelete',
             FieldListType::class,
             [
                 'label'       => 'mautic.lead.lead.events.delete_user_data',
-                'choices'     => $choices,
+                'choices'     => $choicesToDelete,
                 'constraints' => [$this->checkFieldsSimilarity()],
             ]
         );
     }
 
-    /**
-     * @return array<string, int>
-     */
-    private function getFieldChoices(): array
+    private function getFieldChoices(bool $checkIsUniqueField=true): array
     {
-        $leadFields = $this->fieldModel->getRepository()->findBy(
-            [
-                'type'              => self::FIELD_TYPE_ALLOWED,
-                'isUniqueIdentifer' => false,
-            ]
-        );
+        $findBy['type'] = self::FIELD_TYPE_ALLOWED;
+        if ($checkIsUniqueField) {
+            $findBy['isUniqueIdentifer'] = false;
+        }
+        $leadFields = $this->fieldModel->getRepository()->findBy($findBy);
         $choices    = [];
         foreach ($leadFields as $field) {
             $choices[$field->getLabel()] = $field->getId();

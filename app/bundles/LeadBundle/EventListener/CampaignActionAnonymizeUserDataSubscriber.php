@@ -5,11 +5,13 @@ namespace Mautic\LeadBundle\EventListener;
 use Mautic\CampaignBundle\CampaignEvents;
 use Mautic\CampaignBundle\Event\CampaignBuilderEvent;
 use Mautic\CampaignBundle\Event\PendingEvent;
+use Mautic\LeadBundle\Entity\Company;
 use Mautic\LeadBundle\Entity\Lead;
 use Mautic\LeadBundle\Entity\LeadField;
 use Mautic\LeadBundle\Form\Type\CampaignActionAnonymizeUserDataType;
 use Mautic\LeadBundle\Helper\AnonymizeHelper;
 use Mautic\LeadBundle\LeadEvents;
+use Mautic\LeadBundle\Model\CompanyModel;
 use Mautic\LeadBundle\Model\FieldModel;
 use Mautic\LeadBundle\Model\LeadModel;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -18,8 +20,11 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
 {
     public const KEY_EVENT_NAME = 'lead.action_anonymizeuserdata';
 
-    public function __construct(private LeadModel $leadModel, private FieldModel $fieldModel)
-    {
+    public function __construct(
+        private LeadModel $leadModel,
+        private FieldModel $fieldModel,
+        private CompanyModel $companyModel
+    ) {
     }
 
     public static function getSubscribedEvents(): array
@@ -57,60 +62,137 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         }
 
         $leads      = $this->leadModel->getEntities($event->getContactIds());
+        $companies  = $this->getCompaniesByLeads($event->getContactIds());
 
         $idFields   = array_merge($properties['fieldsToAnonymize'], $properties['fieldsToDelete']);
         $fields     = $this->fieldModel->getRepository()->findBy(['id' => $idFields]);
+
         foreach ($fields as $field) {
             if (in_array($field->getId(), $properties['fieldsToDelete'])) {
-                $leads = $this->setDeleteFields($leads, $field);
+                [$leads,$companies] = $this->setDeleteFields($leads, $companies, $field);
                 continue;
             }
+
             if (in_array($field->getId(), $properties['fieldsToAnonymize'])) {
-                $leads = $this->setHashFields($leads, $field);
+                [$leads,$companies] = $this->setHashFields($leads, $companies, $field);
             }
         }
-        $this->leadModel->saveEntities($leads);
+
+        if (!empty($leads)) {
+            $this->leadModel->saveEntities($leads);
+        }
+
+        if (!empty($companies)) {
+            $this->companyModel->saveEntities($companies);
+        }
+
         $event->passAll();
     }
 
     /**
-     * @param array<Lead> $leads
+     * @param array<int> $leadIds
      *
-     * @return array<Lead>
+     * @return array<Company>
      */
-    private function setDeleteFields(array $leads, LeadField $field): array
+    private function getCompaniesByLeads(array $leadIds): array
     {
-        foreach ($leads as $key => $lead) {
-            $leadField = $lead->getField($field->getAlias());
-            if (empty($leadField['value'])) {
-                continue;
+        $companiesByLead  = $this->companyModel->getRepository()->getCompaniesForContacts($leadIds);
+        $companiesId      = [];
+        foreach ($companiesByLead as $companies) {
+            foreach ($companies as $company) {
+                $companiesId[] = $company['id'];
             }
-            $leads[$key] = $lead->addUpdatedField($field->getAlias(), null);
         }
 
-        return $leads;
+        return $this->companyModel->getEntities($companiesId);
     }
 
     /**
-     * @param array<Lead> $leads
+     * @param array<Lead>    $leads
+     * @param array<Company> $companies
      *
-     * @return array<Lead>
+     * @return array<int,array<mixed>>
      */
-    private function setHashFields(array $leads, LeadField $field): array
+    private function setDeleteFields(array $leads, array $companies, LeadField $field): array
     {
-        foreach ($leads as $key => $lead) {
-            $leadField = $lead->getField($field->getAlias());
-            if (empty($leadField['value'])) {
-                continue;
-            }
-            if ('email' === $field->getType()) {
-                $leads[$key] = $lead->addUpdatedField($field->getAlias(), AnonymizeHelper::email($leadField['value']));
+        return [
+            $this->setLeadsCompaniesFieldNull($leads, $field),
+            $this->setLeadsCompaniesFieldNull($companies, $field),
+        ];
+    }
+
+    /**
+     * @param array<Lead|Company> $leadsCompanies
+     *
+     * @return array<mixed>
+     */
+    private function setLeadsCompaniesFieldNull(array $leadsCompanies, LeadField $field): array
+    {
+        foreach ($leadsCompanies as $key => $leadCompany) {
+            if (!method_exists($leadCompany, 'addUpdatedField') || !method_exists($leadCompany, 'getField')) {
                 continue;
             }
 
-            $leads[$key] = $lead->addUpdatedField($field->getAlias(), AnonymizeHelper::text($leadField['value']));
+            $leadField = $leadCompany->getField($field->getAlias());
+            if (false === $leadField) {
+                continue;
+            }
+            $leadsCompanies[$key] = $leadCompany->addUpdatedField($field->getAlias(), null);
         }
 
-        return $leads;
+        return $leadsCompanies;
+    }
+
+    /**
+     * @param array<Lead>    $leads
+     * @param array<Company> $companies
+     *
+     * @return array<int,array<mixed>>
+     */
+    private function setHashFields(array $leads, array $companies, LeadField $field): array
+    {
+        return [
+            $this->setHashes($leads, $field),
+            $this->setHashes($companies, $field),
+        ];
+    }
+
+    /**
+     * @param array<Lead>|array<Company> $leadsCompanies
+     *
+     * @return array<mixed>
+     */
+    private function setHashes(array $leadsCompanies, LeadField $field): array
+    {
+        foreach ($leadsCompanies as $key => $leadCompany) {
+            if (!method_exists($leadCompany, 'getField')) {
+                continue;
+            }
+            $leadField = $leadCompany->getField($field->getAlias());
+            if (false === $leadField) {
+                continue;
+            }
+            $leadsCompanies[$key] = $this->setHash($leadCompany, $leadField, $field);
+        }
+
+        return $leadsCompanies;
+    }
+
+    /**
+     * @param array<string, string|null> $field
+     */
+    private function setHash(Company|Lead $leadOrCompany, array $field, LeadField $leadField): Lead|Company
+    {
+        if (empty($field['value'])) {
+            return $leadOrCompany;
+        }
+
+        if ('email' === $field['type']) {
+            $leadOrCompany->addUpdatedField($leadField->getAlias(), AnonymizeHelper::email($field['value']));
+        } else {
+            $leadOrCompany->addUpdatedField($leadField->getAlias(), AnonymizeHelper::text($field['value']));
+        }
+
+        return $leadOrCompany;
     }
 }
