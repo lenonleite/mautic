@@ -3,6 +3,7 @@
 namespace Mautic\LeadBundle\Tests\Functional\EventListener;
 
 use Mautic\CoreBundle\Test\MauticMysqlTestCase;
+use Mautic\LeadBundle\Entity\LeadField;
 use PHPUnit\Framework\Assert;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\DomCrawler\Form;
@@ -25,10 +26,11 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $response = $this->client->getResponse();
         Assert::assertTrue($response->isOk(), $response->getContent());
         Assert::assertStringContainsString('Anonymize User Data', $response->getContent());
-        Assert::assertStringContainsString('Anonymize User Data from fields', $response->getContent());
+        Assert::assertStringContainsString('Anonymize User Data in these fields', $response->getContent());
         Assert::assertStringContainsString('Zip Code', $response->getContent());
         Assert::assertStringContainsString('Address Line 1', $response->getContent());
         Assert::assertStringContainsString('Instagram', $response->getContent());
+        Assert::assertStringContainsString('Pseudonymization will turn the personal data into a one', $response->getContent());
     }
 
     public function testAnonymizeUserDataAction(): void
@@ -140,16 +142,32 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
 
     public function testIfFieldsWithUniqueIdentifierAreNotBring(): void
     {
-        $fieldModel = static::getContainer()->get('mautic.lead.model.field');
-        $entity     = $fieldModel->getRepository()->findOneBy(['alias' => 'instagram']);
-        $entity->setIsUniqueIdentifer(true);
-        $fieldModel->saveEntity($entity);
         $uri = self::URI_EVENT_NEW;
         $this->client->request('GET', $uri, [], [], $this->createAjaxHeaders());
         $response = $this->client->getResponse();
         Assert::assertTrue($response->isOk(), $response->getContent());
-        $responseData = json_decode($response->getContent(), true);
-        Assert::assertStringNotContainsString('Instagram', $responseData['newContent']);
+        preg_match_all('/Instagram/', $response->getContent(), $matches);
+        Assert::assertCount(2, $matches[0]);
+        $fieldModel = static::getContainer()->get('mautic.lead.model.field');
+        assert($fieldModel instanceof \Mautic\LeadBundle\Model\FieldModel);
+        $entity     = $fieldModel->getRepository()->findOneBy(['alias' => 'instagram']);
+        assert($entity instanceof LeadField);
+        $entity->setIsUniqueIdentifer(true);
+        $fieldModel->saveEntity($entity);
+        $this->client->request('GET', $uri, [], [], $this->createAjaxHeaders());
+        $response = $this->client->getResponse();
+        Assert::assertTrue($response->isOk(), $response->getContent());
+        preg_match_all('/Instagram/', $response->getContent(), $matches);
+        Assert::assertCount(1, $matches[0]);
+    }
+
+    public function testIfEmailFieldIsComingOneTime(): void
+    {
+        $uri = self::URI_EVENT_NEW;
+        $this->client->request('GET', $uri, [], [], $this->createAjaxHeaders());
+        $response = $this->client->getResponse();
+        Assert::assertTrue($response->isOk(), $response->getContent());
+        Assert::assertStringContainsString('Email', $response->getContent());
     }
 
     /**

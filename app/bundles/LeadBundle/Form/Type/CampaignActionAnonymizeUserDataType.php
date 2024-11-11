@@ -30,7 +30,7 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
                 'label' => 'mautic.lead.lead.events.anonymize_user_data',
                 'data'  => $options['data']['pseudonymize'] ?? false,
                 'attr'  => [
-                    'tooltip' => '',
+                    'tooltip' => 'mautic.campaign.lead.action_anonymizeuserdata.tooltip',
                 ],
             ]
         );
@@ -56,6 +56,9 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
         );
     }
 
+    /**
+     * @return array<string, int>
+     */
     private function getFieldChoices(bool $checkIsUniqueField=true): array
     {
         $findBy['type'] = self::FIELD_TYPE_ALLOWED;

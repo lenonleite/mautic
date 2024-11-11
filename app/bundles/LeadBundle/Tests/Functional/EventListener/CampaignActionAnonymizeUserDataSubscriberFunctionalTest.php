@@ -40,8 +40,7 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
 
         $lead2              = $this->createLead($preDefLead2);
         $resultCompanyLead3 = $this->addCompanyOnLead($lead2, $company2);
-        //        $this->addCompanyOnLead($lead2, $company);
-        $campaignLead = [
+        $campaignLead       = [
             $this->createLeadCampaign($campaign, $lead1),
             $this->createLeadCampaign($campaign, $lead2),
         ];
@@ -169,7 +168,7 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
         return $campaignLead;
     }
 
-    private function createCompany($name = 'Company', $email='company@foobaa.com'): Company
+    private function createCompany(string $name = 'Company', string $email='company@foobaa.com'): Company
     {
         $company = new Company();
         $company->setName($name);

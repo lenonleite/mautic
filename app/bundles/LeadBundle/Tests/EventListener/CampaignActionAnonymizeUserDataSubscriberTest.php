@@ -6,6 +6,7 @@ use Mautic\CampaignBundle\CampaignEvents;
 use Mautic\CampaignBundle\Event\CampaignBuilderEvent;
 use Mautic\LeadBundle\EventListener\CampaignActionAnonymizeUserDataSubscriber;
 use Mautic\LeadBundle\LeadEvents;
+use Mautic\LeadBundle\Model\CompanyModel;
 use Mautic\LeadBundle\Model\FieldModel;
 use Mautic\LeadBundle\Model\LeadModel;
 use PHPUnit\Framework\TestCase;
@@ -19,9 +20,11 @@ class CampaignActionAnonymizeUserDataSubscriberTest extends TestCase
         parent::setUp();
         $leadModelMock                                   = $this->createMock(LeadModel::class);
         $fieldModelMock                                  = $this->createMock(FieldModel::class);
+        $companyModelMock                                = $this->createMock(CompanyModel::class);
         $this->campaignActionAnonymizeUserDataSubscriber = new CampaignActionAnonymizeUserDataSubscriber(
             $leadModelMock,
-            $fieldModelMock
+            $fieldModelMock,
+            $companyModelMock
         );
     }
 

@@ -13,8 +13,8 @@ class CampaignActionAnonymizeUserDataTypeTest extends \PHPUnit\Framework\TestCas
     public function testBuildForm(): void
     {
         $lead = $this->createMock(LeadField::class);
-        $lead->expects($this->once())->method('getId')->willReturn(1);
-        $lead->expects($this->once())->method('getLabel')->willReturn('email');
+        $lead->expects($this->exactly(2))->method('getId')->willReturn(1);
+        $lead->expects($this->exactly(2))->method('getLabel')->willReturn('email');
 
         $fieldsChoices = [
             $lead,
@@ -22,8 +22,8 @@ class CampaignActionAnonymizeUserDataTypeTest extends \PHPUnit\Framework\TestCas
 
         $fieldModel       = $this->createMock(FieldModel::class);
         $fieldRepository  = $this->createMock(LeadFieldRepository::class);
-        $fieldRepository->expects($this->once())->method('findBy')->willReturn($fieldsChoices);
-        $fieldModel->expects($this->once())->method('getRepository')->willReturn($fieldRepository);
+        $fieldRepository->expects($this->exactly(2))->method('findBy')->willReturn($fieldsChoices);
+        $fieldModel->expects($this->exactly(2))->method('getRepository')->willReturn($fieldRepository);
         $builder    = $this->createMock(FormBuilderInterface::class);
         $builder->expects($this->exactly(3))->method('add');
         $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel);
