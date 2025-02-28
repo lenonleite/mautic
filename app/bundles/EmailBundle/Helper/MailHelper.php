@@ -240,6 +240,8 @@ class MailHelper
      */
     private $embedImagesReplaces = [];
 
+    protected bool $skip = false;
+
     public function __construct(MauticFactory $factory, \Swift_Mailer $mailer, $from = null)
     {
         $this->factory   = $factory;
@@ -369,6 +371,7 @@ class MailHelper
             $this->message->setReturnPath($this->returnPath);
         }
 
+        $this->dispatchPreSendEvent();
         if (empty($this->fatal)) {
             if (!$isQueueFlush) {
                 // Search/replace tokens if this is not a queue flush
@@ -439,7 +442,11 @@ class MailHelper
 
                 $failures = null;
 
-                $this->mailer->send($this->message, $failures);
+                if (!$this->skip) {
+                    $this->mailer->send($this->message, $failures);
+                }
+                $this->skip = false;
+
 
                 if (!empty($failures)) {
                     $this->errors['failures'] = $failures;
@@ -2224,5 +2231,32 @@ class MailHelper
 
         $this->systemReplyTo = $systemReplyToEmail ?: $fromEmail;
         $this->replyTo       = $this->systemReplyTo;
+    }
+
+    public function dispatchPreSendEvent(): void
+    {
+        if (null === $this->dispatcher) {
+            $this->dispatcher = $this->factory->getDispatcher();
+        }
+
+        if (empty($this->dispatcher)) {
+            return;
+        }
+
+        $event = new EmailSendEvent($this);
+        $this->dispatcher->dispatch(EmailEvents::EMAIL_PRE_SEND, $event);
+
+        $this->skip               = $event->isSkip();
+        $this->fatal              = $event->isFatal();
+        $errors                   = $event->getErrors();
+        if (!empty($errors)) {
+            $currentErrors = [];
+            if (isset($this->errors['failures']) && is_array($this->errors['failures'])) {
+                $currentErrors = $this->errors['failures'];
+            }
+            $this->errors['failures'] = array_merge($errors, $currentErrors);
+        }
+
+        unset($event);
     }
 }

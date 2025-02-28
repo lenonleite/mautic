@@ -879,9 +879,13 @@ class MailHelperTest extends TestCase
         $initialHtml = 'Text <a href="https://mautic.com">Mautic</a> <img src="{ token }" /> <img src="https://mautic.com/contact/{ token2 }/avatar.png"/> <img src="/tmp/fake.jpg">';
         $trackedHtml = $initialHtml.'<img height="1" width="1" src="{tracking_pixel}" alt="" />';
 
-        $eventDispatcher->expects(self::once())
+        $eventDispatcher->expects(self::exactly(2))
             ->method('dispatch')
-            ->with(EmailEvents::EMAIL_ON_SEND, new EmailSendEvent($mailer))
+            ->withConsecutive(
+                [EmailEvents::EMAIL_PRE_SEND, self::isInstanceOf(EmailSendEvent::class)],
+                [EmailEvents::EMAIL_ON_SEND, self::isInstanceOf(EmailSendEvent::class)]
+            )
+//            ->with(EmailEvents::EMAIL_PRE_SEND, new EmailSendEvent($mailer))
             ->willReturnCallback(static function (string $eventName, EmailSendEvent $event): object {
                 $event->addToken('{ token }', 'https://mautic.com/image.gif');
 
