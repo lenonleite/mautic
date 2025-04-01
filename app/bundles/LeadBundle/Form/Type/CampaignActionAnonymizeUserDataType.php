@@ -13,6 +13,7 @@ use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Validator\Constraints\Callback;
 use Symfony\Component\Validator\Context\ExecutionContextInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
 
 class CampaignActionAnonymizeUserDataType extends AbstractType
 {
@@ -21,8 +22,20 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
         'email',
     ];
 
-    public function __construct(private FieldModel $fieldModel, private EntityManager $entityManager)
-    {
+    public const DEFAULT_VALUES_TO_DELETE = [
+        'First Name' => 2,
+        'Last Name'  => 3,
+    ];
+
+    public const DEFAULT_VALUES_TO_ANONYMIZE = [
+        'Email' => 6,
+    ];
+
+    public function __construct(
+        private FieldModel $fieldModel,
+        private EntityManager $entityManager,
+        private TranslatorInterface $translator
+    ) {
     }
 
     public function buildForm(FormBuilderInterface $builder, array $options): void
@@ -38,13 +51,15 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
                 ],
             ]
         );
-        $choicesAnonymize = $this->getFieldChoices(false, true);
+        $choicesAnonymize = $this->getFieldChoices(false);
+
         $builder->add(
             'fieldsToAnonymize',
             FieldListType::class,
             [
                 'label'   => 'mautic.lead.lead.events.fields_to_anonymize',
                 'choices' => $choicesAnonymize,
+                'data'    => $options['data']['fieldsToAnonymize'] ?? self::DEFAULT_VALUES_TO_ANONYMIZE,
             ]
         );
 
@@ -56,6 +71,7 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
                 'label'       => 'mautic.lead.lead.events.delete_user_data',
                 'choices'     => $choicesToDelete,
                 'constraints' => [$this->checkFieldsSimilarity()],
+                'data'        => $options['data']['fieldsToDelete'] ?? self::DEFAULT_VALUES_TO_DELETE,
             ]
         );
     }
@@ -71,12 +87,8 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
         }
         $leadFields    = $this->fieldModel->getRepository()->findBy($findBy);
         $choices       = [];
-        $columnsLength = $this->getLeadCompanyColumnsLenght();
 
         foreach ($leadFields as $field) {
-            if ($validLessThan64Char && $this->getCharLengthLimit($field, $columnsLength) < 64) {
-                continue;
-            }
             $choices[$field->getLabel()] = $field->getId();
         }
 

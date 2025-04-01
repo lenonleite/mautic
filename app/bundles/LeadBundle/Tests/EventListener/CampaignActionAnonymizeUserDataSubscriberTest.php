@@ -4,6 +4,7 @@ namespace Mautic\LeadBundle\Tests\EventListener;
 
 use Mautic\CampaignBundle\CampaignEvents;
 use Mautic\CampaignBundle\Event\CampaignBuilderEvent;
+use Mautic\EmailBundle\Model\EmailStatModel;
 use Mautic\LeadBundle\EventListener\CampaignActionAnonymizeUserDataSubscriber;
 use Mautic\LeadBundle\LeadEvents;
 use Mautic\LeadBundle\Model\CompanyModel;
@@ -21,10 +22,21 @@ class CampaignActionAnonymizeUserDataSubscriberTest extends TestCase
         $leadModelMock                                   = $this->createMock(LeadModel::class);
         $fieldModelMock                                  = $this->createMock(FieldModel::class);
         $companyModelMock                                = $this->createMock(CompanyModel::class);
+        $logMock                                         = $this->createMock(\Psr\Log\LoggerInterface::class);
+        $emailStatsModelMock                             = $this->createMock(EmailStatModel::class);
+        $entityManagerMock                               = $this->createMock(\Doctrine\ORM\EntityManager::class);
+        $auditLogModelMock                               = $this->createMock(\Mautic\CoreBundle\Model\AuditLogModel::class);
+        $submissionModelMock                             = $this->createMock(\Mautic\FormBundle\Model\SubmissionModel::class);
+
         $this->campaignActionAnonymizeUserDataSubscriber = new CampaignActionAnonymizeUserDataSubscriber(
             $leadModelMock,
             $fieldModelMock,
-            $companyModelMock
+            $companyModelMock,
+            $logMock,
+            $emailStatsModelMock,
+            $entityManagerMock,
+            $auditLogModelMock,
+            $submissionModelMock
         );
     }
 

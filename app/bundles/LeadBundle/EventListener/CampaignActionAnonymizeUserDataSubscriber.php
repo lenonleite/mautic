@@ -6,7 +6,10 @@ use Doctrine\ORM\EntityManager;
 use Mautic\CampaignBundle\CampaignEvents;
 use Mautic\CampaignBundle\Event\CampaignBuilderEvent;
 use Mautic\CampaignBundle\Event\PendingEvent;
+use Mautic\CoreBundle\Entity\AuditLog;
+use Mautic\CoreBundle\Model\AuditLogModel;
 use Mautic\EmailBundle\Model\EmailStatModel;
+use Mautic\FormBundle\Model\SubmissionModel;
 use Mautic\LeadBundle\Entity\Company;
 use Mautic\LeadBundle\Entity\Lead;
 use Mautic\LeadBundle\Entity\LeadField;
@@ -31,7 +34,9 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         private CompanyModel $companyModel,
         private LoggerInterface $logger,
         private EmailStatModel $emailStatModel,
-        private EntityManager $entityManager
+        private EntityManager $entityManager,
+        private AuditLogModel $auditLogModel,
+        private SubmissionModel $submissionModel,
     ) {
     }
 
@@ -80,8 +85,12 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
 
             if (in_array($field->getId(), $properties['fieldsToAnonymize'])) {
                 $leadsCompanyColumnsLength = $this->getLeadCompanyColumnsLenght();
-                [$leads,$companies]        = $this->setHashFields($leads, $companies, $field, $pseudonymize, $leadsCompanyColumnsLength);
+                [$leads,$companies]        = $this->setHashFields($leads, $companies, $field, $pseudonymize, $leadsCompanyColumnsLength, $event);
             }
+        }
+
+        if (in_array($field->getId(), $properties['fieldsToAnonymize']) || in_array($field->getId(), $properties['fieldsToDelete'])) {
+            $this->deleteFormResults($event);
         }
 
         if (!empty($leads)) {
@@ -139,11 +148,17 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
                 continue;
             }
 
-            $leadField = $leadCompany->getField($field->getAlias());
-            if (false === $leadField) {
-                continue;
+            if ($leadCompany instanceof Lead) {
+                $leadField = $leadCompany->getField($field->getAlias());
+                if (false !== $leadField) {
+                    $leadsCompanies[$key] = $leadCompany->addUpdatedField($field->getAlias(), null);
+                    continue;
+                }
             }
-            $leadsCompanies[$key] = $leadCompany->addUpdatedField($field->getAlias(), null);
+
+            if ($leadCompany instanceof Company) {
+                $this->companyModel->setFieldValues($leadCompany, [$field->getAlias()=>null]);
+            }
         }
 
         return $leadsCompanies;
@@ -155,11 +170,11 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
      *
      * @return array<int,array<mixed>>
      */
-    private function setHashFields(array $leads, array $companies, LeadField $field, bool $pseudonymize, array $leadsCompanyColumnsLength): array
+    private function setHashFields(array $leads, array $companies, LeadField $field, bool $pseudonymize): array
     {
         return [
-            $this->setHashes($leads, $field, $pseudonymize, $leadsCompanyColumnsLength),
-            $this->setHashes($companies, $field, $pseudonymize, $leadsCompanyColumnsLength),
+            $this->setHashes($leads, $field, $pseudonymize),
+            $this->setHashes($companies, $field, $pseudonymize),
         ];
     }
 
@@ -168,11 +183,17 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
      *
      * @return array<mixed>
      */
-    private function setHashes(array $leadsCompanies, LeadField $field, bool $pseudonymize, array $leadsCompanyColumnsLength): array
+    private function setHashes(array $leadsCompanies, LeadField $field, bool $pseudonymize): array
     {
         foreach ($leadsCompanies as $key => $leadCompany) {
             if (!method_exists($leadCompany, 'getField')) {
                 continue;
+            }
+            if ($leadCompany instanceof Company) {
+                $leadField = $leadCompany->getField($field->getAlias());
+                if (false === $leadField) {
+                    continue;
+                }
             }
             $leadField = $leadCompany->getField($field->getAlias());
             if (false === $leadField) {
@@ -185,7 +206,7 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
                 continue;
             }
 
-            $leadsCompanies[$key] = $this->setHash($leadCompany, $leadField, $field, $pseudonymize, $leadsCompanyColumnsLength);
+            $leadsCompanies[$key] = $this->setHash($leadCompany, $leadField, $field, $pseudonymize);
         }
 
         return $leadsCompanies;
@@ -198,8 +219,7 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         Company|Lead $leadOrCompany,
         array $field,
         LeadField $leadField,
-        bool $pseudonymize,
-        array $leadsCompanyColumnsLength
+        bool $pseudonymize
     ): Lead|Company {
         if (empty($field['value'])) {
             return $leadOrCompany;
@@ -208,15 +228,21 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         try {
             if ('email' === $field['type']) {
                 $valueAnonymized = AnonymizeHelper::email($field['value'], $pseudonymize);
+                if ($leadField->getCharLengthLimit() < strlen($valueAnonymized)) {
+                    $valueAnonymized = $this->formatHashEmail($valueAnonymized, $leadField->getCharLengthLimit());
+                }
                 $this->updateEmailStatusValues($field['value'], $valueAnonymized, $pseudonymize);
-                $this->updateFormResultsTable($field['value'], $valueAnonymized, $pseudonymize);
             } else {
                 $valueAnonymized = AnonymizeHelper::text($field['value'], $pseudonymize);
             }
 
-            if ($this->getCharLengthLimit($leadField, $leadsCompanyColumnsLength) >= strlen($valueAnonymized)) {
-                $leadOrCompany->addUpdatedField($leadField->getAlias(), $valueAnonymized, $pseudonymize);
+            if ($leadField->getCharLengthLimit() < strlen($valueAnonymized) && 'email' === $field['type']) {
+                $valueAnonymized = $this->formatHashEmail($valueAnonymized, $leadField->getCharLengthLimit());
+            } elseif ($leadField->getCharLengthLimit() < strlen($valueAnonymized)) {
+                $valueAnonymized = substr($valueAnonymized, 0, $leadField->getCharLengthLimit());
             }
+            $leadOrCompany->addUpdatedField($leadField->getAlias(), $valueAnonymized);
+            $this->updateAuditLogs($leadOrCompany);
         } catch (\Exception $e) {
             // Do nothing
             $this->logger->error('AnonymizeUserDataSubscriber setHash fail: '.$e->getMessage());
@@ -225,20 +251,51 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         return $leadOrCompany;
     }
 
-    private function getCharLengthLimit(LeadField $leadField, array $leadsCompanyColumnsLength): int
+    private function updateAuditLogs($leadOrCompany)
     {
-        $alias = $leadField->getAlias();
-        $key   = 'companies';
-        if ('lead' === $leadField->getObject()) {
-            $key = 'leads';
-        }
-        if (isset($leadsCompanyColumnsLength[$key][$alias])) {
-            return $leadsCompanyColumnsLength[$key][$alias];
-        }
+        $auditLogs = $this->auditLogModel->getRepository()->findBy([
+            'bundle'   => 'lead',
+            'object'   => 'lead',
+            'objectId' => $leadOrCompany->getId(),
+            'action'   => 'update',
+        ]);
 
-        return $leadField->getCharLengthLimit();
+        foreach ($auditLogs as $auditLog) {
+            $this->auditLogModel->getRepository()->deleteEntity($auditLog);
+        }
     }
 
+    private function formatHashEmail(string $email, int $limit): string
+    {
+        // Extract the domain from the email
+        $atPosition = strrpos($email, '@'); // Find the position of '@'
+
+        if (false === $atPosition) {
+            // If the email does not have a domain, return the email as-is
+            return $email;
+        }
+
+        $domain       = substr($email, $atPosition); // Extract the domain (e.g., @gmail.com or @uol.com)
+        $domainLength = strlen($domain);
+
+        // Calculate the allowed length for the local part
+        $localPartLength = $limit - $domainLength;
+
+        // If the local part length is less than 1, it's not possible to truncate
+        if ($localPartLength < 1) {
+            return $email;
+        }
+
+        // Extract and truncate the local part
+        $localPart = substr($email, 0, $localPartLength);
+
+        // Combine the truncated local part with the domain
+        return $localPart.$domain;
+    }
+
+    /**
+     * @param array<string<array<string>> $leads
+     */
     private function getLeadCompanyColumnsLenght(): array
     {
         $leadMetadata    = $this->entityManager->getClassMetadata(Lead::class);
@@ -276,62 +333,55 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         }
     }
 
-    private function updateFormResultsTable(string $email, string $hash, bool $pseudonymize): void
+    private function updateAuditLogValues(string $email, string $hash, bool $pseudonymize): void
+    {
+        // audit_log.email
+        $auditLogs = $this->entityManager->getRepository(AuditLog::class)->findBy(
+            [
+                'bundle' => 'lead',
+                'object' => 'lead',
+            ],
+        );
+        foreach ($auditLogs as $auditLog) {
+            if (!$pseudonymize) {
+                $hash = AnonymizeHelper::email($email, $pseudonymize);
+            }
+
+            $auditLog->setEmail($hash);
+            $this->entityManager->persist($auditLog);
+        }
+        $this->entityManager->flush();
+    }
+
+    private function deleteFormResults(PendingEvent $event): void
+    {
+        $leads = $event->getContacts();
+        foreach ($leads as $lead) {
+            $submissionForms = $this->submissionModel->getRepository()->findBy(['lead' => $lead]);
+            foreach ($submissionForms as $submissionForm) {
+                $newSubmissionForm     = $submissionForm;
+                $id                    = $submissionForm->getForm()->getId();
+                $alias                 = $submissionForm->getForm()->getAlias();
+                $idSubmissionsToDelete = [$submissionForm->getId()];
+                $this->submissionModel->getRepository()->deleteEntity($submissionForm);
+                $this->deleteFormResultsByLead($submissionForm->getForm()->getId(), $submissionForm->getForm()->getAlias(), $idSubmissionsToDelete);
+            }
+        }
+    }
+
+    private function deleteFormResultsByLead(int $formId, string $formAlias, array $submissionsToDelete): void
     {
         $connection = $this->entityManager->getConnection();
         $prefix     = MAUTIC_TABLE_PREFIX;
-        // Step 1: Get all tables starting with 'form_results_'
-        $query  = "SHOW TABLES LIKE '".$prefix."form_results_%'";
-        $tables = $connection->executeQuery($query)->fetchAllAssociative();
-
-        $resultTablesWithEmail = [];
-
-        foreach ($tables as $table) {
-            // Step 2: Extract table name (key depends on your database)
-            $tableName = reset($table); // Ensure to get the table name only
-
-            // Step 3: Check if email exists in the current table
-            $columnCheckQuery = "SHOW COLUMNS FROM `$tableName`";
-            $columns          = $connection->executeQuery($columnCheckQuery)->fetchAllAssociative();
-
-            foreach ($columns as $column) {
-                if (str_contains($column['Field'], 'email')) {
-                    $resultTablesWithEmail[] = [
-                        'table'     => $table,
-                        'tableName' => $tableName,
-                        'column'    => $column,
-                    ];
-                }
-            }
-        }
-
-        if (empty($resultTablesWithEmail)) {
-            return;
-        }
-
-        foreach ($resultTablesWithEmail as $table) {
-            if (!in_array($table['column']['Type'], self::COLUMNS_ACEPPTED)) {
-                continue;
-            }
-
-            if ($pseudonymize) {
-                $updateQuery = "UPDATE `{$table['tableName']}` SET `{$table['column']['Field']}` = :hash WHERE `{$table['column']['Field']}` = :email";
-                $connection->executeQuery($updateQuery, ['hash' => $hash, 'email' => $email]);
-                continue;
-            }
-
-            $selectQuery = "SELECT `{$table['column']['Field']}`, submission_id FROM `{$table['tableName']}` WHERE `{$table['column']['Field']}` = :email";
-            $result      = $connection->executeQuery($selectQuery, ['email' => $email])->fetchAllAssociative();
-
-            if (empty($result)) {
-                continue;
-            }
-
-            foreach ($result as $row) {
-                $hash        = AnonymizeHelper::email($email, $pseudonymize);
-                $updateQuery = "UPDATE `{$table['tableName']}` SET `{$table['column']['Field']}` = :hash WHERE `submission_id` = :submission_id";
-                $connection->executeQuery($updateQuery, ['hash' => $hash, 'submission_id' => $row['submission_id']]);
-            }
-        }
+        $query      = "DELETE FROM {$prefix}form_results_{$formId}_{$formAlias} WHERE submission_id IN (:submissions)";
+        $connection->executeQuery(
+            $query,
+            [
+                'submissions' => $submissionsToDelete,
+            ],
+            [
+                'submissions' => \Doctrine\DBAL\Connection::PARAM_INT_ARRAY,
+            ]
+        );
     }
 }

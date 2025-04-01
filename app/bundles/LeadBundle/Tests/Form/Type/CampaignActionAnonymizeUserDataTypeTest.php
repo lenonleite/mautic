@@ -26,14 +26,19 @@ class CampaignActionAnonymizeUserDataTypeTest extends \PHPUnit\Framework\TestCas
         $fieldModel->expects($this->exactly(2))->method('getRepository')->willReturn($fieldRepository);
         $builder    = $this->createMock(FormBuilderInterface::class);
         $builder->expects($this->exactly(3))->method('add');
-        $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel);
+
+        $entityManager                       = $this->createMock(\Doctrine\ORM\EntityManager::class);
+        $translator                          = $this->createMock(\Symfony\Contracts\Translation\TranslatorInterface::class);
+        $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel, $entityManager, $translator);
         $campaignActionAnonymizeUserDataType->buildForm($builder, []);
     }
 
     public function testGetBlockPrefix(): void
     {
         $fieldModel                          = $this->createMock(FieldModel::class);
-        $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel);
+        $entityManager                       = $this->createMock(\Doctrine\ORM\EntityManager::class);
+        $translator                          = $this->createMock(\Symfony\Contracts\Translation\TranslatorInterface::class);
+        $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel, $entityManager, $translator);
         $this->assertEquals('lead_action_anonymizeuserdata', $campaignActionAnonymizeUserDataType->getBlockPrefix());
     }
 }
