@@ -6,7 +6,6 @@ use Doctrine\ORM\EntityManager;
 use Mautic\CampaignBundle\CampaignEvents;
 use Mautic\CampaignBundle\Event\CampaignBuilderEvent;
 use Mautic\CampaignBundle\Event\PendingEvent;
-use Mautic\CoreBundle\Entity\AuditLog;
 use Mautic\CoreBundle\Model\AuditLogModel;
 use Mautic\EmailBundle\Model\EmailStatModel;
 use Mautic\FormBundle\Model\SubmissionModel;
@@ -251,7 +250,7 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         return $leadOrCompany;
     }
 
-    private function updateAuditLogs($leadOrCompany)
+    private function updateAuditLogs($leadOrCompany): void
     {
         $auditLogs = $this->auditLogModel->getRepository()->findBy([
             'bundle'   => 'lead',
@@ -331,26 +330,6 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
             $emailStat->setEmailAddress($hash);
             $this->emailStatModel->saveEntity($emailStat);
         }
-    }
-
-    private function updateAuditLogValues(string $email, string $hash, bool $pseudonymize): void
-    {
-        // audit_log.email
-        $auditLogs = $this->entityManager->getRepository(AuditLog::class)->findBy(
-            [
-                'bundle' => 'lead',
-                'object' => 'lead',
-            ],
-        );
-        foreach ($auditLogs as $auditLog) {
-            if (!$pseudonymize) {
-                $hash = AnonymizeHelper::email($email, $pseudonymize);
-            }
-
-            $auditLog->setEmail($hash);
-            $this->entityManager->persist($auditLog);
-        }
-        $this->entityManager->flush();
     }
 
     private function deleteFormResults(PendingEvent $event): void
