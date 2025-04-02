@@ -12,6 +12,7 @@ use Mautic\FormBundle\Entity\Submission;
 use Mautic\FormBundle\Model\FormModel;
 use Mautic\FormBundle\Model\SubmissionModel;
 use Mautic\LeadBundle\Entity\Company;
+use Mautic\LeadBundle\Entity\CompanyLead;
 use Mautic\LeadBundle\Entity\Lead;
 use Mautic\LeadBundle\Entity\LeadField;
 use Mautic\LeadBundle\Entity\LeadList;
@@ -240,11 +241,34 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
     {
         // Set email field as unique to duplicate the email
         $this->setEmailUnique();
-        $email1 = 'foo@baa.com';
-        $email2 = 'jhondoe@test.com';
-        $lead1  = $this->createLead('Test1', 'Lastname1', $email1);
-        $lead2  = $this->createLead('Test2', 'Lastname2', $email1);
-        $lead3  = $this->createLead('Test3', 'Lastname3', $email2);
+        $email1   = 'foo@baa.com';
+        $email2   = 'jhondoe@test.com';
+        $lead1    = $this->createLead('Test1', 'Lastname1', $email1);
+        $lead2    = $this->createLead('Test2', 'Lastname2', $email1);
+        $lead3    = $this->createLead('Test3', 'Lastname3', $email2);
+        $company1 = $this->createCompany('Company 1', 'emailCompany@test.com');
+        $company2 = $this->createCompany('Company 2', 'company2@email.com');
+        $lead1->setCompany($company1);
+        $lead1->setPrimaryCompany($company1);
+        $lead2->setCompany($company1);
+        $lead2->setPrimaryCompany($company1);
+        $lead3->setCompany($company2);
+        $lead3->setPrimaryCompany($company2);
+        $this->em->persist($lead1);
+        $this->em->persist($lead2);
+        $this->em->persist($lead3);
+        $this->em->flush();
+
+        $leadModel = static::getContainer()->get('mautic.lead.model.lead');
+        assert($leadModel instanceof LeadModel);
+        $leadModel->getRepository()->saveEntity($lead1);
+        $leadModel->getRepository()->saveEntity($lead2);
+        $leadModel->getRepository()->saveEntity($lead3);
+
+        $this->addCompanyOnLead($lead1, $company1);
+        $this->addCompanyOnLead($lead2, $company1);
+        $this->addCompanyOnLead($lead3, $company2);
+
         $list   = $this->createLeadList('Test List');
         $this->addLeadToList([$lead1, $lead2, $lead3], $list);
         $resultForms = $this->createFormWithSubmissions([$lead1, $lead2, $lead3]);
@@ -261,9 +285,9 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $emailStat3       = $this->addEmailStat($lead3, $emailEntity, $email2);
         $getFieldChoices  = $this->getFieldChoices(false);
 
-        // Fields Anonymize: First Name, Last Name
-        // Fields to deleted: Primary Company, Position, Address Line 1
-        $event = $this->createCampaignEvent($campaign, 'Anonymize User Data Test', ['2', '3', '6'], ['4', '5', '11'], true);
+        // Fields Anonymize: First Name, Last Name, Email, Company Address 1
+        // Fields to deleted: Primary Company, Position, Address Line 1, Company Address 2
+        $event = $this->createCampaignEvent($campaign, 'Anonymize User Data Test', ['2', '3', '6', '29'], ['4', '5', '11', '30'], true);
 
         // add event
         $campaign->addEvent('lead.action_anonymizeuserdata', $event);
@@ -307,6 +331,80 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $this->assertNotSame($newEmailStat1->getEmailAddress(), $email1);
 
         $this->assertNotSame($newEmailStat3->getEmailAddress(), $newEmailStat2->getEmailAddress());
+
+        $companyLead1       = $this->em->getRepository(Company::class)->find($company1->getId());
+        $companyEntity1     = $this->em->getRepository(Company::class)->find($company1->getId());
+        $companyLead2       = $this->em->getRepository(Company::class)->find($company2->getId());
+
+        $this->assertNotNull($companyLead1->getAddress1());
+        $this->assertNotNull($company1->getAddress1());
+        $this->assertNotSame($companyLead1->getAddress1(), $company1->getAddress1());
+        $this->assertNotNull($company1->getAddress2());
+        $this->assertNull($companyLead1->getAddress2());
+    }
+
+    private function createCompany(string $name = 'Company', string $email='company@foobaa.com'): Company
+    {
+        $leadFields = $this->em->getRepository(LeadField::class)->findOneBy(['alias' => 'companyaddress1']);
+
+        $company = new Company();
+        $company->setName($name);
+        $company->setDescription('Company Description');
+        $company->setIndustry('Industry');
+        $company->setWebsite('www.company.com');
+        $company->setEmail($email);
+        $company->setPhone('1234567890');
+        $company->setAddress1('Company Address 1');
+        $company->setAddress2('Company Address 2');
+        $company->setCity('Company City');
+
+        $companyModel = static::getContainer()->get('mautic.lead.model.company');
+        assert($companyModel instanceof \Mautic\LeadBundle\Model\CompanyModel);
+        $companyModel->setFieldValues($company, []);
+        $companyModel->setFieldValues($company, [
+            'companyaddress1' => [
+                'value' => 'Company Address 1',
+                'label' => 'Company Address 1',
+            ],
+            'companyaddress2' => [
+                'value' => 'Company Address 2',
+                'label' => 'Company Address 2',
+            ],
+            'companydescription111' => [
+                'value' => 'Company Description',
+                'label' => 'Company Description',
+            ],
+        ]);
+
+        $companyModel = static::getContainer()->get('mautic.lead.model.company');
+        assert($companyModel instanceof \Mautic\LeadBundle\Model\CompanyModel);
+        $companyModel->getRepository()->saveEntity($company);
+
+        return $company;
+    }
+
+    /**
+     * @return array<string, Lead|Company|CompanyLead>
+     */
+    private function addCompanyOnLead(Lead $lead, Company $company, bool $primaryCompany = true): array
+    {
+        $companyLead = new CompanyLead();
+        $companyLead->setCompany($company);
+        $companyLead->setLead($lead);
+        $companyLead->setPrimary($primaryCompany);
+        $companyLead->setDateAdded(new \DateTime());
+        $lead->setPrimaryCompany($company);
+        $lead->setCompany($company);
+        $this->em->persist($companyLead);
+        $this->em->persist($lead);
+        $this->em->persist($company);
+        $this->em->flush();
+
+        return [
+            'lead'        => $lead,
+            'company'     => $company,
+            'companyLead' => $companyLead,
+        ];
     }
 
     public function testAnonymizeData(): void

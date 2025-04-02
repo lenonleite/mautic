@@ -27,6 +27,28 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
 
     public const COLUMNS_ACEPPTED = ['text', 'longtext'];
 
+    public const COMPANY_FIELDS_TO_COLUMNS =
+        [
+            'companyaddress1'    => 'address1',
+            'companyaddress2'    => 'address2',
+            'companycity'        => 'city',
+            'companystate'       => 'state',
+            'companyzip'         => 'zip',
+            'companycountry'     => 'country',
+            'companyphone'       => 'phone',
+            'companyfax'         => 'fax',
+            'companywebsite'     => 'website',
+            'companyemail'       => 'email',
+            'companyname'        => 'name',
+            'companydescription' => 'description',
+            'companyindustry'    => 'industry',
+            'companyemployees'   => 'employees',
+            'companyrevenue'     => 'revenue',
+            'companystatus'      => 'status',
+            'companytype'        => 'type',
+            'companyalias'       => 'alias',
+        ];
+
     public function __construct(
         private LeadModel $leadModel,
         private FieldModel $fieldModel,
@@ -146,17 +168,34 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
             if (!method_exists($leadCompany, 'addUpdatedField') || !method_exists($leadCompany, 'getField')) {
                 continue;
             }
-
-            if ($leadCompany instanceof Lead) {
+            if ($leadCompany instanceof Lead && 'lead' === $field->getObject()) {
                 $leadField = $leadCompany->getField($field->getAlias());
                 if (false !== $leadField) {
-                    $leadsCompanies[$key] = $leadCompany->addUpdatedField($field->getAlias(), null);
+                    $leadCompany->addUpdatedField($field->getAlias(), null);
+                    $leadsCompanies[$key] = $leadCompany;
                     continue;
                 }
             }
+            if ($leadCompany instanceof Company && 'company' === $field->getObject()) {
+                $fields    = $leadCompany->getFields();
+                $leadField = $leadCompany->getField($field->getAlias());
 
-            if ($leadCompany instanceof Company) {
-                $this->companyModel->setFieldValues($leadCompany, [$field->getAlias()=>null]);
+                if (false !== $leadField) {
+                    $leadCompany->addUpdatedField($field->getAlias(), null);
+                    $leadsCompanies[$key] = $leadCompany;
+                    continue;
+                }
+
+                $alias = self::COMPANY_FIELDS_TO_COLUMNS[$field->getAlias()] ?? $field->getAlias();
+
+                $leadFieldValue = $leadCompany->getFieldValue($alias);
+                if (property_exists($leadCompany, $alias) && null !== $leadFieldValue) {
+                    $leadFieldValue = $leadCompany->{'get'.ucfirst($alias)}();
+                    if (null !== $leadFieldValue) {
+                        $leadCompany->{'set'.ucfirst($alias)}(null);
+                    }
+                    continue;
+                }
             }
         }
 
@@ -188,20 +227,38 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
             if (!method_exists($leadCompany, 'getField')) {
                 continue;
             }
-            if ($leadCompany instanceof Company) {
+            $leadField = false;
+            if ($leadCompany instanceof Company && 'company' === $field->getObject()) {
+                $leadField = $leadCompany->getField($field->getAlias());
+                if (false === $leadField) {
+                    $alias          = self::COMPANY_FIELDS_TO_COLUMNS[$field->getAlias()] ?? $field->getAlias();
+                    $leadFieldValue = $leadCompany->getFieldValue($alias);
+                    if (property_exists($leadCompany, $alias) && null !== $leadFieldValue) {
+                        $tempLeadField = $leadCompany->{'get'.ucfirst($alias)}();
+                        if (empty($tempLeadField)) {
+                            continue;
+                        }
+                        unset($leadField);
+                        $leadField['value'] = $tempLeadField;
+                        $leadField['type']  = $field->getType();
+                    } else {
+                        continue;
+                    }
+                }
+            }
+            if ($leadCompany instanceof Lead && 'lead' === $field->getObject()) {
                 $leadField = $leadCompany->getField($field->getAlias());
                 if (false === $leadField) {
                     continue;
                 }
+
+                $field     = $this->fieldModel->getRepository()->find($leadField['id']);
+
+                if (null === $field) {
+                    continue;
+                }
             }
-            $leadField = $leadCompany->getField($field->getAlias());
             if (false === $leadField) {
-                continue;
-            }
-
-            $field     = $this->fieldModel->getRepository()->find($leadField['id']);
-
-            if (null === $field) {
                 continue;
             }
 
@@ -240,8 +297,21 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
             } elseif ($leadField->getCharLengthLimit() < strlen($valueAnonymized)) {
                 $valueAnonymized = substr($valueAnonymized, 0, $leadField->getCharLengthLimit());
             }
-            $leadOrCompany->addUpdatedField($leadField->getAlias(), $valueAnonymized);
-            $this->updateAuditLogs($leadOrCompany);
+
+            if ($leadOrCompany instanceof Lead) {
+                $auditObject = 'lead';
+                $leadOrCompany->addUpdatedField($leadField->getAlias(), $valueAnonymized);
+            }
+
+            if ($leadOrCompany instanceof Company) {
+                $auditObject = 'company';
+                $alias       = self::COMPANY_FIELDS_TO_COLUMNS[$leadField->getAlias()] ?? $leadField->getAlias();
+                if (property_exists($leadOrCompany, $alias)) {
+                    $leadOrCompany->{'set'.ucfirst($alias)}($valueAnonymized);
+                }
+            }
+
+            $this->updateAuditLogs($leadOrCompany, $auditObject);
         } catch (\Exception $e) {
             // Do nothing
             $this->logger->error('AnonymizeUserDataSubscriber setHash fail: '.$e->getMessage());
@@ -250,11 +320,11 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         return $leadOrCompany;
     }
 
-    private function updateAuditLogs($leadOrCompany): void
+    private function updateAuditLogs($leadOrCompany, $object='lead'): void
     {
         $auditLogs = $this->auditLogModel->getRepository()->findBy([
             'bundle'   => 'lead',
-            'object'   => 'lead',
+            'object'   => $object,
             'objectId' => $leadOrCompany->getId(),
             'action'   => 'update',
         ]);

@@ -9,9 +9,18 @@ use Mautic\CoreBundle\Test\MauticMysqlTestCase;
 use Mautic\LeadBundle\Entity\Company;
 use Mautic\LeadBundle\Entity\CompanyLead;
 use Mautic\LeadBundle\Entity\Lead;
+use Mautic\LeadBundle\Entity\LeadField;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Tester\ApplicationTester;
 
 class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysqlTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->useCleanupRollback = false;
+        $this->setUpSymfony($this->configParams);
+    }
     public const LEAD_DEFAULT_DEFINES = [
         'firstname' => 'Test',
         'lastname'  => 'User',
@@ -28,6 +37,10 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
 
     public function testRunCampaignWithAnonymizeUserDataAction(): void
     {
+        $application = new Application(self::$kernel);
+        $application->setAutoExit(false);
+        $applicationTester = new ApplicationTester($application);
+
         $campaign           = $this->createCampaign();
         $event              = $this->createEvent($campaign);
         $preDefLead1        = 'Foo';
@@ -35,24 +48,34 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
         $company1           = $this->createCompany();
         $company2           = $this->createCompany('Company 2', 'foobaa2@mauit.com');
 
+        $newCompany1 = $this->em->getRepository(Company::class)->find($company1->getId());
+        $this->assertNotNull($newCompany1);
+
         $lead1              = $this->createLead($preDefLead1);
         $resultCompanyLead1 = $this->addCompanyOnLead($lead1, $company1, true);
         $resultCompanyLead2 = $this->addCompanyOnLead($lead1, $company2, false);
 
         $lead2              = $this->createLead($preDefLead2);
         $resultCompanyLead3 = $this->addCompanyOnLead($lead2, $company2, true);
-        $companyEntity1     = $this->em->getRepository(Company::class)->find($company1->getId());
+
         $campaignLead       = [
             $this->createLeadCampaign($campaign, $lead1),
             $this->createLeadCampaign($campaign, $lead2),
         ];
-        $this->em->clear();
 
-        // Execute Campaign
-        $test = $this->testSymfonyCommand(
-            'mautic:campaigns:trigger',
-            ['--campaign-id' => $campaign->getId()]
-        );
+        //        // Execute Campaign
+        //        $test = $this->testSymfonyCommand(
+        //            'mautic:campaigns:trigger',
+        //            ['--campaign-id' => $campaign->getId()]
+        //        );
+
+        // Force Doctrine to re-fetch the entities otherwise the campaign won't know about any events.
+        //        $this->em->flush();
+        //        $this->em->clear();
+
+        // Execute the campaign.
+        $resultRunCommandCampaign1 = $this->testSymfonyCommand('mautic:campaigns:update');
+        $resultRunCommandCampaign2 = $this->testSymfonyCommand('mautic:campaigns:trigger', ['--campaign-id' => $campaign->getId()]);
 
         // Check if the leads are anonymized
         $freshLead1         = $this->em->getRepository(Lead::class)->find($lead1->getId());
@@ -60,16 +83,17 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
         $companyEntity1     = $this->em->getRepository(Company::class)->find($company1->getId());
         $companyLead2       = $this->em->getRepository(Company::class)->find($company2->getId());
 
-        //        $this->assertNull($companyLead1->getField('companyaddress1')['value']);
-        //        $this->assertNotNull($companyLead1->getField('companyaddress2')['value']);
-        //        // Check if Description from company 1 was anonymized
-        //        $this->assertNotSame($companyLead1->getDescription(), $resultCompanyLead1['company']->getDescription());
-        //        $this->assertNotNull($companyLead1->getDescription());
-        //        // Check if Address1 from company 2 was deleted
-        //        $this->assertNotSame($companyLead2->getAddress1(), $resultCompanyLead2['company']->getAddress1());
-        //        $this->assertNull($companyLead2->getAddress1());
-        //        // Check if Address 2 from company 2 kept the same because it was not defined to be deleted
-        //        $this->assertSame($companyLead2->getAddress2(), $resultCompanyLead2['company']->getAddress2());
+        $this->assertNull($companyLead1->getField('companyaddress1')['value']);
+        $this->assertNotNull($companyLead1->getField('companyaddress2')['value']);
+
+        // Check if Description from company 1 was anonymized
+        $this->assertNotSame($companyLead1->getDescription(), $resultCompanyLead1['company']->getDescription());
+        $this->assertNotNull($companyLead1->getDescription());
+        // Check if Address1 from company 2 was deleted
+        $this->assertNotSame($companyLead2->getAddress1(), $resultCompanyLead2['company']->getAddress1());
+        $this->assertNull($companyLead2->getAddress1());
+        // Check if Address 2 from company 2 kept the same because it was not defined to be deleted
+        $this->assertSame($companyLead2->getAddress2(), $resultCompanyLead2['company']->getAddress2());
         // Check if position from lead 1 kept the same because position is a number field
         $this->assertFalse($freshLead1->getField('position'));
         // Check if address1 from lead 1 was anonymized
@@ -173,6 +197,8 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
 
     private function createCompany(string $name = 'Company', string $email='company@foobaa.com'): Company
     {
+        $leadFields = $this->em->getRepository(LeadField::class)->findOneBy(['alias' => 'companyaddress1']);
+
         $company = new Company();
         $company->setName($name);
         $company->setDescription('Company Description');
@@ -183,10 +209,25 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
         $company->setAddress1('Company Address 1');
         $company->setAddress2('Company Address 2');
         $company->setCity('Company City');
-        $company->setFields([
-            'companyaddress1' => 'Company Size',
-            'companyaddress2' => 'Company Type',
+
+        $companyModel = static::getContainer()->get('mautic.lead.model.company');
+        assert($companyModel instanceof \Mautic\LeadBundle\Model\CompanyModel);
+        $companyModel->setFieldValues($company, []);
+        $companyModel->setFieldValues($company, [
+            'companyaddress1' => [
+                'value' => 'Company Address 1',
+                'label' => 'Company Address 1',
+            ],
+            'companyaddress2' => [
+                'value' => 'Company Address 2',
+                'label' => 'Company Address 2',
+            ],
+            'companydescription111' => [
+                'value' => 'Company Description',
+                'label' => 'Company Description',
+            ],
         ]);
+
         $this->em->persist($company);
         $this->em->flush();
 

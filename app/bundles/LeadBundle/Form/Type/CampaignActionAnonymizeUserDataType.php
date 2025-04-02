@@ -45,6 +45,7 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
             ]
         );
         $choicesAnonymize = $this->getFieldChoices(false);
+        //        dd($choicesAnonymize);
 
         $builder->add(
             'fieldsToAnonymize',
