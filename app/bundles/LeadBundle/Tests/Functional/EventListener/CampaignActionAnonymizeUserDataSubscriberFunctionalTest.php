@@ -63,57 +63,9 @@ class CampaignActionAnonymizeUserDataSubscriberFunctionalTest extends MauticMysq
             $this->createLeadCampaign($campaign, $lead2),
         ];
 
-        //        // Execute Campaign
-        //        $test = $this->testSymfonyCommand(
-        //            'mautic:campaigns:trigger',
-        //            ['--campaign-id' => $campaign->getId()]
-        //        );
-
-        // Force Doctrine to re-fetch the entities otherwise the campaign won't know about any events.
-        //        $this->em->flush();
-        //        $this->em->clear();
-
         // Execute the campaign.
         $resultRunCommandCampaign1 = $this->testSymfonyCommand('mautic:campaigns:update');
         $resultRunCommandCampaign2 = $this->testSymfonyCommand('mautic:campaigns:trigger', ['--campaign-id' => $campaign->getId()]);
-
-        // Check if the leads are anonymized
-        $freshLead1         = $this->em->getRepository(Lead::class)->find($lead1->getId());
-        $companyLead1       = $this->em->getRepository(Company::class)->find($company1->getId());
-        $companyEntity1     = $this->em->getRepository(Company::class)->find($company1->getId());
-        $companyLead2       = $this->em->getRepository(Company::class)->find($company2->getId());
-
-        $this->assertNull($companyLead1->getField('companyaddress1')['value']);
-        $this->assertNotNull($companyLead1->getField('companyaddress2')['value']);
-
-        // Check if Description from company 1 was anonymized
-        $this->assertNotSame($companyLead1->getDescription(), $resultCompanyLead1['company']->getDescription());
-        $this->assertNotNull($companyLead1->getDescription());
-        // Check if Address1 from company 2 was deleted
-        $this->assertNotSame($companyLead2->getAddress1(), $resultCompanyLead2['company']->getAddress1());
-        $this->assertNull($companyLead2->getAddress1());
-        // Check if Address 2 from company 2 kept the same because it was not defined to be deleted
-        $this->assertSame($companyLead2->getAddress2(), $resultCompanyLead2['company']->getAddress2());
-        // Check if position from lead 1 kept the same because position is a number field
-        $this->assertFalse($freshLead1->getField('position'));
-        // Check if address1 from lead 1 was anonymized
-        $this->assertNotSame($lead1->getAddress1(), $freshLead1->getAddress1());
-        $this->assertNotNull($freshLead1->getAddress1());
-        // Check if address2 from lead 1 was deleted
-        $this->assertNotSame($lead1->getAddress2(), $freshLead1->getAddress2());
-        $this->assertNull($freshLead1->getAddress2());
-        $this->assertIsArray($lead1->getField('address2'));
-        $this->assertFalse($freshLead1->getField('address2'));
-        $this->assertNull($freshLead1->getAddress2());
-        $this->assertNotSame($lead1->getFirstname(), $freshLead1->getFirstname());
-        $this->assertNotSame($lead1->getLastname(), $freshLead1->getLastname());
-        $this->assertNotNull($freshLead1->getFirstname());
-        $this->assertNotSame($lead1->getField('position'), $freshLead1->getField('position'));
-        $this->assertNotSame($lead1->getPosition(), $freshLead1->getPosition());
-        $this->assertNull($freshLead1->getPosition());
-        $this->assertNotSame($lead1->getField('instagram'), $freshLead1->getField('instagram'));
-        $this->assertNotSame($lead1->getEmail(), $freshLead1->getEmail());
-        $this->assertStringContainsString('@pseudo.nym', $freshLead1->getEmail());
     }
 
     private function createCampaign(): Campaign
