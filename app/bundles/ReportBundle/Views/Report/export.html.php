@@ -65,7 +65,7 @@ $reportDataResult     = new ReportDataResult($reportData);
                 <tr>
                     <td><?php echo $count + 1; ?></td>
                     <?php foreach ($data as $k => $v): ?>
-                        <td><?php echo $view['formatter']->_($v, $reportDataResult->getType($k)); ?></td>
+                        <td><?php echo $view['formatter']->_($v, strip_tags($reportDataResult->getType($k))); ?></td>
                     <?php endforeach; ?>
                 </tr>
             <?php endforeach; ?>

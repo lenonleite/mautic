@@ -135,7 +135,7 @@ $graphContent = $view->render(
                                                             echo $view['date']->toShort($cellVal, 'UTC');
                                                             break;
                                                         default:
-                                                            echo $view['formatter']->_($cellVal, $cellType);
+                                                            echo $view['formatter']->_(strip_tags($cellVal), $cellType);
                                                             break;
                                                     }
                                                 }
