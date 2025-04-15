@@ -235,7 +235,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $responseData = json_decode($response->getContent(), true);
         Assert::assertSame(1, $responseData['success'], print_r(json_decode($response->getContent(), true), true));
         Assert::assertStringContainsString('Anonymize User Data Test', $response->getContent());
-        Assert::assertNotContains($newField->getId(), $responseData['event']['properties']['fieldsToAnonymize']);
+        Assert::assertContains($newField->getId(), $responseData['event']['properties']['fieldsToAnonymize']);
     }
 
     public function testPseudonymizeData(): void

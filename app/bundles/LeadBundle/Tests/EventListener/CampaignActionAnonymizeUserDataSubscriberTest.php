@@ -45,7 +45,7 @@ class CampaignActionAnonymizeUserDataSubscriberTest extends TestCase
         $this->assertEquals(
             [
                 CampaignEvents::CAMPAIGN_ON_BUILD                  => ['configureAction', 0],
-                LeadEvents::ON_CAMPAIGN_ACTION_ANONYMIZE_USER_DATA => ['anonymizeUserData', 0],
+                LeadEvents::ON_CAMPAIGN_ACTION_ANONYMIZE_USER_DATA => ['anonymizeUserData', 10],
             ],
             $this->campaignActionAnonymizeUserDataSubscriber::getSubscribedEvents()
         );
