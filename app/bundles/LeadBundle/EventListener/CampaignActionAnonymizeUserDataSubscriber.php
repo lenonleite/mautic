@@ -68,7 +68,6 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         return [
             CampaignEvents::CAMPAIGN_ON_BUILD                  => ['configureAction', 0],
             LeadEvents::ON_CAMPAIGN_ACTION_ANONYMIZE_USER_DATA => ['anonymizeUserData', 10],
-            //            LeadEvents::LEAD_POST_SAVE => ['deleteAuditLog', 0],
         ];
     }
 
