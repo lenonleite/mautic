@@ -8,6 +8,7 @@ use Mautic\CoreBundle\Test\MauticMysqlTestCase;
 use Mautic\EmailBundle\Entity\Email;
 use Mautic\EmailBundle\Entity\Stat;
 use Mautic\FormBundle\Entity\Field;
+use Mautic\FormBundle\Entity\Form as FormEntity;
 use Mautic\FormBundle\Entity\Submission;
 use Mautic\FormBundle\Model\FormModel;
 use Mautic\FormBundle\Model\SubmissionModel;
@@ -205,7 +206,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         Assert::assertStringContainsString('Email', $response->getContent());
     }
 
-    public function testAllFieldsToAnonymizeData()
+    public function testAllFieldsToAnonymizeData(): void
     {
         $newField = $this->newField('new_field', 'New Field', 32);
         $this->client->request('GET', self::URI_EVENT_NEW, [], [], $this->createAjaxHeaders());
@@ -239,6 +240,10 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
 
     public function testPseudonymizeData(): void
     {
+        $auditLogModel = static::getContainer()->get('mautic.core.model.auditlog');
+        assert($auditLogModel instanceof \Mautic\CoreBundle\Model\AuditLogModel);
+        $checkAuditLog = $auditLogModel->getRepository()->findAll();
+        Assert::assertEmpty($checkAuditLog);
         // Set email field as unique to duplicate the email
         $this->setEmailUnique();
         $email1   = 'foo@baa.com';
@@ -248,6 +253,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $lead3    = $this->createLead('Test3', 'Lastname3', $email2);
         $company1 = $this->createCompany('Company 1', 'emailCompany@test.com');
         $company2 = $this->createCompany('Company 2', 'company2@email.com');
+
         $lead1->setCompany($company1);
         $lead1->setPrimaryCompany($company1);
         $lead2->setCompany($company1);
@@ -270,8 +276,11 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $this->addCompanyOnLead($lead3, $company2);
 
         $list   = $this->createLeadList('Test List');
+
         $this->addLeadToList([$lead1, $lead2, $lead3], $list);
+
         $resultForms = $this->createFormWithSubmissions([$lead1, $lead2, $lead3]);
+
         $campaign    = $this->createCampaign($list);
 
         $emailEntity = new Email();
@@ -280,6 +289,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $emailEntity->setName('Test Email');
         $this->em->persist($emailEntity);
         $this->em->flush();
+
         $emailStat1       = $this->addEmailStat($lead1, $emailEntity, $email1);
         $emailStat2       = $this->addEmailStat($lead2, $emailEntity, $email1);
         $emailStat3       = $this->addEmailStat($lead3, $emailEntity, $email2);
@@ -294,6 +304,39 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $this->em->flush();
         $this->em->clear();
 
+        $checkAuditLogBeginLead1 = $auditLogModel->getRepository()->findBy(
+            [
+                'objectId' => $lead1,
+                'object'   => 'lead',
+                'bundle'   => 'lead',
+            ]
+        );
+
+        $this->assertNotEmpty($checkAuditLogBeginLead1);
+        $this->assertCount(2, $checkAuditLogBeginLead1);
+
+        $checkAuditLogBeginLead2 = $auditLogModel->getRepository()->findBy(
+            [
+                'objectId' => $lead2,
+                'object'   => 'lead',
+                'bundle'   => 'lead',
+            ]
+        );
+
+        $this->assertNotEmpty($checkAuditLogBeginLead2);
+        $this->assertCount(2, $checkAuditLogBeginLead2);
+
+        $checkAuditLogBeginCompany1 = $auditLogModel->getRepository()->findBy(
+            [
+                'objectId' => $company1,
+                'object'   => 'company',
+                'bundle'   => 'lead',
+            ]
+        );
+
+        $this->assertNotEmpty($checkAuditLogBeginCompany1);
+        $this->assertCount(1, $checkAuditLogBeginCompany1);
+
         $resultOldForm1Table = $this->getResultOfNewTable($resultForms['forms'][0]);
         $this->assertNotEmpty($resultOldForm1Table);
         $this->assertCount(3, $resultOldForm1Table);
@@ -302,6 +345,38 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
 
         $resultRunCommandCampaign1 = $this->testSymfonyCommand('mautic:campaigns:update');
         $resultRunCommandCampaign2 = $this->testSymfonyCommand('mautic:campaigns:trigger', ['--campaign-id' => $campaign->getId()]);
+
+        $auditLogModel = static::getContainer()->get('mautic.core.model.auditlog');
+        assert($auditLogModel instanceof \Mautic\CoreBundle\Model\AuditLogModel);
+        $checkAuditLog1 = $auditLogModel->getRepository()->findBy(
+            [
+                'objectId' => $lead1,
+                'object'   => 'lead',
+                'bundle'   => 'lead',
+            ]
+        );
+
+        $this->assertEmpty($checkAuditLog1);
+
+        $checkAuditLog2 = $auditLogModel->getRepository()->findBy(
+            [
+                'objectId' => $lead2,
+                'object'   => 'lead',
+                'bundle'   => 'lead',
+            ]
+        );
+
+        $this->assertEmpty($checkAuditLog2);
+
+        $checkAuditLog3 = $auditLogModel->getRepository()->findBy(
+            [
+                'objectId' => $company1,
+                'object'   => 'company',
+                'bundle'   => 'lead',
+            ]
+        );
+
+        $this->assertEmpty($checkAuditLog3);
 
         $newLead1 = $this->em->getRepository(Lead::class)->find($lead1->getId());
         $newLead2 = $this->em->getRepository(Lead::class)->find($lead2->getId());
@@ -379,6 +454,18 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $companyModel = static::getContainer()->get('mautic.lead.model.company');
         assert($companyModel instanceof \Mautic\LeadBundle\Model\CompanyModel);
         $companyModel->getRepository()->saveEntity($company);
+
+        $auditLogModel = static::getContainer()->get('mautic.core.model.auditlog');
+        assert($auditLogModel instanceof \Mautic\CoreBundle\Model\AuditLogModel);
+        $auditLogModel->writeToLog(
+            [
+                'bundle'    => 'lead',
+                'object'    => 'company',
+                'objectId'  => $company->getId(),
+                'action'    => 'create',
+                'details'   => [],
+            ]
+        );
 
         return $company;
     }
@@ -483,6 +570,14 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $this->assertNotSame($newEmailStat1->getEmailAddress(), $emailStat1->getEmailAddress());
     }
 
+    /**
+     * @param array <Lead> $leads
+     *
+     * @return array <string, array<mixed>>
+     *
+     * @throws \Doctrine\ORM\Exception\ORMException
+     * @throws \Doctrine\ORM\OptimisticLockException
+     */
     private function createFormWithSubmissions(array $leads): array
     {
         $formPayload = [
@@ -543,7 +638,8 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         assert($formModel instanceof FormModel);
         $formEntity1      = $formModel->getRepository()->find($response2['form']['id']);
         $submissionsForm1 = $submissionModel->getRepository()->findBy(['form' => $formEntity1]);
-        $this->assertSame(3, count($submissionsForm1));
+        //        $this->assertSame(3, count($submissionsForm1));
+        $this->assertCount(3, $submissionsForm1);
 
         foreach ($submissionsForm1 as $submission) {
             $this->assertContains($submission->getLead()->getEmail(), [$leads[0]->getEmail(), $leads[1]->getEmail(), $leads[2]->getEmail()]);
@@ -551,7 +647,8 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
 
         $formEntity2      = $formModel->getRepository()->find($response1['form']['id']);
         $submissionsForm2 = $submissionModel->getRepository()->findBy(['form' => $formEntity2]);
-        $this->assertSame(0, count($submissionsForm2));
+        $this->assertCount(0, $submissionsForm2);
+        //        $this->assertSame(0, count($submissionsForm2));
 
         return [
             'forms'       => [$formEntity1, $formEntity2],
@@ -562,7 +659,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         ];
     }
 
-    private function addSubmission($id, $email, $lastname): ?Submission
+    private function addSubmission(int $id, string $email, string $lastname): ?Submission
     {
         $crawler = $this->client->request('GET', '/form/'.$id.'/');
         $form    = $crawler->filter('form')->form();
@@ -578,7 +675,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
 
         $fomEntity = $formModel->getRepository()->find($id);
 
-        $result = $this->em->getRepository(Submission::class)->findOneBy(['form' => $fomEntity], ['id' => 'DESC'], 1);
+        $result = $this->em->getRepository(Submission::class)->findOneBy(['form' => $fomEntity], ['id' => 'DESC']);
 
         if (empty($result)) {
             return null;
@@ -587,42 +684,14 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         return $result;
     }
 
-    private function createTestTable(string $email1, string $email2, string $email3): void
-    {
-        // Define table name with the prefix (replace 'your_prefix_' with the desired prefix)
-        $tableName = MAUTIC_TABLE_PREFIX.self::TEST_TABLE_NAME;
-
-        // The SQL statement to create the table
-        $sql = "
-        CREATE TABLE IF NOT EXISTS `$tableName` (
-            `submission_id` INT AUTO_INCREMENT NOT NULL,
-            `form_id` INT NOT NULL,
-            `test_email` longtext NOT NULL,
-            PRIMARY KEY (`submission_id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    ";
-
-        // Execute the SQL command
-        $connection = $this->em->getConnection();
-        $connection->executeStatement($sql);
-
-        // Optionally insert some test data
-        $sql = "INSERT INTO `$tableName` (`form_id`, `test_email`) VALUES (:formId, :testEmail)";
-        $connection->executeStatement("
-    INSERT INTO `$tableName` (`form_id`, `test_email`) VALUES
-    (1, '".$email1."'),
-    (2, '".$email2."'),
-    (3, '".$email3."');
-");
-    }
-
-    private function getResultOfNewTable($form): array
+    /**
+     * @return array<int,array<string,string>>
+     */
+    private function getResultOfNewTable(FormEntity $form): array
     {
         $tableName  = MAUTIC_TABLE_PREFIX.'form_results_'.$form->getId().'_'.$form->getAlias();
-        //        dd($tableName);
         $connection = $this->em->getConnection();
         $sql        = "SELECT * FROM $tableName";
-        //        dd($sql, $tableName);
         $stmt       = $connection->prepare($sql);
         $result     = $stmt->executeQuery();
 
@@ -656,7 +725,14 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $fieldModel->saveEntity($entity);
     }
 
-    private function createCampaignEvent($campaign, string $name, array $fieldsToAnonymize, array $fieldsToDelete, bool $pseudonymize = false): Event
+    /**
+     * @param array <string> $fieldsToAnonymize
+     * @param array <string> $fieldsToDelete
+     *
+     * @throws \Doctrine\ORM\Exception\ORMException
+     * @throws \Doctrine\ORM\OptimisticLockException
+     */
+    private function createCampaignEvent(Campaign $campaign, string $name, array $fieldsToAnonymize, array $fieldsToDelete, bool $pseudonymize = false): Event
     {
         $campaignEvent = new Event();
         $campaignEvent->setCampaign($campaign);
@@ -691,6 +767,9 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         return $campaign;
     }
 
+    /**
+     * @param array <Lead> $leads
+     */
     private function addLeadToList(array $leads, LeadList $list): void
     {
         $leadModel = static::getContainer()->get('mautic.lead.model.lead');
@@ -708,7 +787,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $list->setDateAdded(new \DateTime());
         $list->setDateModified(new \DateTime());
         $list->setCreatedBy(1);
-        $list->setModifiedBy(1);
+        $list->setModifiedBy(null);
         $list->setFilters([]);
         $list->setPublicName($nameList);
         $list->setIsPublished(true);
@@ -720,7 +799,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
 
     private function createLead(
         string $name = 'Test',
-        $lastname= 'last name',
+        string $lastname= 'last name',
         string $email = 'example@test.com',
         string $address = 'Address Line 1',
     ): Lead {
@@ -741,14 +820,42 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $lead->setDateAdded(new \DateTime());
         $lead->setDateModified(new \DateTime());
         $lead->setCreatedBy(1);
-        $lead->setModifiedBy(1);
+        $lead->setModifiedBy(null);
 
-        $this->em->persist($lead);
-        $this->em->flush();
+        $leadModel = static::getContainer()->get('mautic.lead.model.lead');
+        \assert($leadModel instanceof LeadModel);
+        $leadModel->getRepository()->saveEntities([$lead]);
+
+        $auditLogModel = static::getContainer()->get('mautic.core.model.auditlog');
+        $auditLogModel->writeToLog([
+            'object'   => 'lead',
+            'objectId' => $lead->getId(),
+            'bundle'   => 'lead',
+            'action'   => 'create',
+            'message'  => 'Lead created',
+            'details'  => [
+                'lead' => ['a', 'email' => $lead->getEmail()],
+            ],
+        ]);
+
+        $lead->setPoints(1);
+        $lead->setIsPublished(true);
+        $leadModel->getRepository()->saveEntity($lead);
+
+        $auditLogModel->writeToLog(
+            [
+                'object'   => 'lead',
+                'objectId' => $lead->getId(),
+                'bundle'   => 'lead',
+                'action'   => 'update',
+                'message'  => 'Lead updated',
+                'details'  => [
+                    'lead' => ['a', 'email' => $lead->getEmail()],
+                ],
+            ]
+        );
 
         return $this->em->getRepository(Lead::class)->find($lead->getId());
-
-        return $lead;
     }
 
     public function testAllFieldsToDeleteData(): void
@@ -799,7 +906,10 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         return $newField;
     }
 
-    private function getFieldChoices(bool $checkIsUniqueField=true, bool $validLimitChar = false): array
+    /**
+     * @return array<string, string>
+     */
+    private function getFieldChoices(bool $checkIsUniqueField = true, bool $validLimitChar = false): array
     {
         $findBy['type'] = self::FIELD_TYPE_ALLOWED;
         if ($checkIsUniqueField) {
@@ -808,54 +918,12 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $fieldModel = static::getContainer()->get('mautic.lead.model.field');
         assert($fieldModel instanceof FieldModel);
         $leadFields    = $fieldModel->getRepository()->findBy($findBy);
-        $columnsLength = $this->getLeadCompanyColumnsLenght();
         $choices       = [];
         foreach ($leadFields as $field) {
-            if ($validLimitChar && $this->getCharLengthLimit($field, $columnsLength) < 64) {
-                continue;
-            }
-            $choices[$field->getLabel()] = $field->getId();
+            $choices[$field->getLabel()] = (string) $field->getId();
         }
 
         return $choices;
-    }
-
-    private function getCharLengthLimit(LeadField $leadField, array $leadsCompanyColumnsLength): int
-    {
-        $alias = $leadField->getAlias();
-        $key   = 'companies';
-        if ('lead' === $leadField->getObject()) {
-            $key = 'leads';
-        }
-        if (isset($leadsCompanyColumnsLength[$key][$alias])) {
-            return $leadsCompanyColumnsLength[$key][$alias];
-        }
-
-        return $leadField->getCharLengthLimit();
-    }
-
-    private function getLeadCompanyColumnsLenght(): array
-    {
-        $entityManager   = static::getContainer()->get('doctrine.orm.entity_manager');
-        $leadMetadata    = $entityManager->getClassMetadata(Lead::class);
-        $companyMetadata = $entityManager->getClassMetadata(Company::class);
-        $columnsLength   = [
-            'leads'     => [],
-            'companies' => [],
-        ];
-        foreach ($leadMetadata->fieldMappings as $fieldName => $fieldMapping) {
-            if (isset($fieldMapping['length'])) {
-                $columnsLength['leads'][$fieldName] = $fieldMapping['length'];
-            }
-        }
-
-        foreach ($companyMetadata->fieldMappings as $fieldName => $fieldMapping) {
-            if (isset($fieldMapping['length'])) {
-                $columnsLength['companies'][$fieldName] = $fieldMapping['length'];
-            }
-        }
-
-        return $columnsLength;
     }
 
     /**

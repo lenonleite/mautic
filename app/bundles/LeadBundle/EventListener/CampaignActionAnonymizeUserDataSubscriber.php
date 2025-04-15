@@ -2,6 +2,7 @@
 
 namespace Mautic\LeadBundle\EventListener;
 
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\ORM\EntityManager;
 use Mautic\CampaignBundle\CampaignEvents;
 use Mautic\CampaignBundle\Event\CampaignBuilderEvent;
@@ -10,6 +11,7 @@ use Mautic\CoreBundle\Model\AuditLogModel;
 use Mautic\EmailBundle\Model\EmailStatModel;
 use Mautic\FormBundle\Model\SubmissionModel;
 use Mautic\LeadBundle\Entity\Company;
+use Mautic\LeadBundle\Entity\CompanyLead;
 use Mautic\LeadBundle\Entity\Lead;
 use Mautic\LeadBundle\Entity\LeadField;
 use Mautic\LeadBundle\Form\Type\CampaignActionAnonymizeUserDataType;
@@ -65,7 +67,8 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
     {
         return [
             CampaignEvents::CAMPAIGN_ON_BUILD                  => ['configureAction', 0],
-            LeadEvents::ON_CAMPAIGN_ACTION_ANONYMIZE_USER_DATA => ['anonymizeUserData', 0],
+            LeadEvents::ON_CAMPAIGN_ACTION_ANONYMIZE_USER_DATA => ['anonymizeUserData', 10],
+            //            LeadEvents::LEAD_POST_SAVE => ['deleteAuditLog', 0],
         ];
     }
 
@@ -95,22 +98,24 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         $leads            = $this->leadModel->getRepository()->findBy(['id' => $event->getContactIds()]);
         $companies        = $this->getCompaniesByLeads($event->getContactIds());
 
-        $idFields   = array_merge($properties['fieldsToAnonymize'], $properties['fieldsToDelete']);
-        $fields     = $this->fieldModel->getRepository()->findBy(['id' => $idFields]);
+        $idFields                     = array_merge($properties['fieldsToAnonymize'], $properties['fieldsToDelete']);
+        $fields                       = $this->fieldModel->getRepository()->findBy(['id' => $idFields]);
+        $deleteFormResultsAndAuditLog = false;
 
         foreach ($fields as $field) {
             if (in_array($field->getId(), $properties['fieldsToDelete'])) {
-                [$leads,$companies] = $this->setDeleteFields($leads, $companies, $field);
+                [$leads,$companies]           = $this->setDeleteFields($leads, $companies, $field);
+                $deleteFormResultsAndAuditLog = true;
                 continue;
             }
 
             if (in_array($field->getId(), $properties['fieldsToAnonymize'])) {
-                $leadsCompanyColumnsLength = $this->getLeadCompanyColumnsLenght();
-                [$leads,$companies]        = $this->setHashFields($leads, $companies, $field, $pseudonymize, $leadsCompanyColumnsLength, $event);
+                [$leads,$companies]           = $this->setHashFields($leads, $companies, $field, $pseudonymize);
+                $deleteFormResultsAndAuditLog = true;
             }
         }
 
-        if (in_array($field->getId(), $properties['fieldsToAnonymize']) || in_array($field->getId(), $properties['fieldsToDelete'])) {
+        if ($deleteFormResultsAndAuditLog) {
             $this->deleteFormResults($event);
         }
 
@@ -123,6 +128,10 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         }
 
         $event->passAll();
+
+        if ($deleteFormResultsAndAuditLog) {
+            $this->deleteAuditLog($event);
+        }
     }
 
     /**
@@ -297,9 +306,8 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
             } elseif ($leadField->getCharLengthLimit() < strlen($valueAnonymized)) {
                 $valueAnonymized = substr($valueAnonymized, 0, $leadField->getCharLengthLimit());
             }
-
+            $auditObject = 'lead';
             if ($leadOrCompany instanceof Lead) {
-                $auditObject = 'lead';
                 $leadOrCompany->addUpdatedField($leadField->getAlias(), $valueAnonymized);
             }
 
@@ -310,28 +318,12 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
                     $leadOrCompany->{'set'.ucfirst($alias)}($valueAnonymized);
                 }
             }
-
-            $this->updateAuditLogs($leadOrCompany, $auditObject);
         } catch (\Exception $e) {
             // Do nothing
             $this->logger->error('AnonymizeUserDataSubscriber setHash fail: '.$e->getMessage());
         }
 
         return $leadOrCompany;
-    }
-
-    private function updateAuditLogs($leadOrCompany, $object='lead'): void
-    {
-        $auditLogs = $this->auditLogModel->getRepository()->findBy([
-            'bundle'   => 'lead',
-            'object'   => $object,
-            'objectId' => $leadOrCompany->getId(),
-            'action'   => 'update',
-        ]);
-
-        foreach ($auditLogs as $auditLog) {
-            $this->auditLogModel->getRepository()->deleteEntity($auditLog);
-        }
     }
 
     private function formatHashEmail(string $email, int $limit): string
@@ -360,32 +352,6 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
 
         // Combine the truncated local part with the domain
         return $localPart.$domain;
-    }
-
-    /**
-     * @param array<string<array<string>> $leads
-     */
-    private function getLeadCompanyColumnsLenght(): array
-    {
-        $leadMetadata    = $this->entityManager->getClassMetadata(Lead::class);
-        $companyMetadata = $this->entityManager->getClassMetadata(Company::class);
-        $columnsLength   = [
-            'leads'     => [],
-            'companies' => [],
-        ];
-        foreach ($leadMetadata->fieldMappings as $fieldName => $fieldMapping) {
-            if (isset($fieldMapping['length'])) {
-                $columnsLength['leads'][$fieldName] = $fieldMapping['length'];
-            }
-        }
-
-        foreach ($companyMetadata->fieldMappings as $fieldName => $fieldMapping) {
-            if (isset($fieldMapping['length'])) {
-                $columnsLength['companies'][$fieldName] = $fieldMapping['length'];
-            }
-        }
-
-        return $columnsLength;
     }
 
     private function updateEmailStatusValues(string $email, string $hash, bool $pseudonymize): void
@@ -418,6 +384,42 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         }
     }
 
+    private function deleteAuditLog(PendingEvent $event): void
+    {
+        $leads = $event->getContacts();
+        foreach ($leads as $lead) {
+            assert($lead instanceof Lead);
+            $companyLeads = $this->companyModel->getCompanyLeadRepository()->getEntitiesByLead($lead);
+            foreach ($companyLeads as $companyLead) {
+                assert($companyLead instanceof CompanyLead);
+                $company          = $companyLead->getCompany();
+                $auditLogsCompany = $this->auditLogModel->getRepository()->findBy(
+                    [
+                        'objectId' => $company,
+                        'bundle'   => 'lead',
+                        'object'   => 'company',
+                    ]
+                );
+                foreach ($auditLogsCompany as $auditLog) {
+                    $this->auditLogModel->getRepository()->deleteEntity($auditLog);
+                }
+            }
+            $auditLogs = $this->auditLogModel->getRepository()->findBy(
+                [
+                    'objectId' => $lead,
+                    'bundle'   => 'lead',
+                    'object'   => 'lead',
+                ]
+            );
+            foreach ($auditLogs as $auditLog) {
+                $this->auditLogModel->getRepository()->deleteEntity($auditLog);
+            }
+        }
+    }
+
+    /**
+     * @param array<int> $submissionsToDelete
+     */
     private function deleteFormResultsByLead(int $formId, string $formAlias, array $submissionsToDelete): void
     {
         $connection = $this->entityManager->getConnection();
@@ -429,7 +431,7 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
                 'submissions' => $submissionsToDelete,
             ],
             [
-                'submissions' => \Doctrine\DBAL\Connection::PARAM_INT_ARRAY,
+                'submissions' => ArrayParameterType::INTEGER,
             ]
         );
     }
