@@ -3,9 +3,11 @@
 namespace Mautic\LeadBundle\Form\Type;
 
 use Mautic\CoreBundle\Form\Type\YesNoButtonGroupType;
+use Mautic\CoreBundle\Translation\Translator;
 use Mautic\LeadBundle\Model\FieldModel;
 use Mautic\PluginBundle\Entity\Integration;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Validator\Constraints\Callback;
 use Symfony\Component\Validator\Context\ExecutionContextInterface;
@@ -27,7 +29,8 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
     ];
 
     public function __construct(
-        private FieldModel $fieldModel
+        private FieldModel $fieldModel,
+        private Translator $translator
     ) {
     }
 
@@ -65,6 +68,21 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
                 'choices'     => $choicesToDelete,
                 'constraints' => [$this->checkFieldsSimilarity()],
                 'data'        => $options['data']['fieldsToDelete'] ?? self::DEFAULT_VALUES_TO_DELETE,
+            ]
+        );
+
+        // Add a text at the end of the form
+        $builder->add(
+            'customText',
+            TextType::class,
+            [
+                'label'    => false, // No label for the text
+                'data'     => $this->translator->trans('mautic.campaign.lead.action_anonymizeuserdata.alert.auditlog'),
+                'mapped'   => false, // Not mapped to any entity field
+                'attr'     => [
+                    'readonly' => true, // Make it read-only
+                    'class'    => 'custom-text-class', // Optional: Add a custom CSS class
+                ],
             ]
         );
     }
