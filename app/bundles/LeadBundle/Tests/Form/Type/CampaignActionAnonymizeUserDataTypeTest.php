@@ -26,15 +26,17 @@ class CampaignActionAnonymizeUserDataTypeTest extends \PHPUnit\Framework\TestCas
         $fieldModel->expects($this->exactly(2))->method('getRepository')->willReturn($fieldRepository);
         $builder    = $this->createMock(FormBuilderInterface::class);
         $builder->expects($this->exactly(3))->method('add');
+        $translator = $this->createMock(\Mautic\CoreBundle\Translation\Translator::class);
 
-        $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel);
+        $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel, $translator);
         $campaignActionAnonymizeUserDataType->buildForm($builder, []);
     }
 
     public function testGetBlockPrefix(): void
     {
         $fieldModel                          = $this->createMock(FieldModel::class);
-        $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel);
+        $translator                          = $this->createMock(\Mautic\CoreBundle\Translation\Translator::class);
+        $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel, $translator);
         $this->assertEquals('lead_action_anonymizeuserdata', $campaignActionAnonymizeUserDataType->getBlockPrefix());
     }
 }

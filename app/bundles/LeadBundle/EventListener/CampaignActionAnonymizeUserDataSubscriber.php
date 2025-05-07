@@ -3,12 +3,14 @@
 namespace Mautic\LeadBundle\EventListener;
 
 use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\Types\IntegerType;
 use Doctrine\ORM\EntityManager;
 use Mautic\CampaignBundle\CampaignEvents;
 use Mautic\CampaignBundle\Event\CampaignBuilderEvent;
 use Mautic\CampaignBundle\Event\PendingEvent;
 use Mautic\CoreBundle\Model\AuditLogModel;
 use Mautic\EmailBundle\Model\EmailStatModel;
+use Mautic\FormBundle\Entity\Submission;
 use Mautic\FormBundle\Model\SubmissionModel;
 use Mautic\LeadBundle\Entity\Company;
 use Mautic\LeadBundle\Entity\CompanyLead;
@@ -28,6 +30,8 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
     public const KEY_EVENT_NAME = 'lead.action_anonymizeuserdata';
 
     public const COLUMNS_ACEPPTED = ['text', 'longtext'];
+
+    public const COLUMNS_NOT_ACCEPTED = ['submission_id', 'form_id'];
 
     public const COMPANY_FIELDS_TO_COLUMNS =
         [
@@ -115,7 +119,7 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         }
 
         if ($deleteFormResultsAndAuditLog) {
-            $this->deleteFormResults($event);
+            $this->updateFormResults($event, $pseudonymize);
         }
 
         if (!empty($leads)) {
@@ -367,18 +371,22 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
         }
     }
 
-    private function deleteFormResults(PendingEvent $event): void
+    private function updateFormResults(PendingEvent $event, bool $pseudonymize): void
     {
-        $leads = $event->getContacts();
+        $leads               = $event->getContacts();
+        $valueSubmissionForm = [];
         foreach ($leads as $lead) {
             $submissionForms = $this->submissionModel->getRepository()->findBy(['lead' => $lead]);
+
             foreach ($submissionForms as $submissionForm) {
-                $newSubmissionForm     = $submissionForm;
                 $id                    = $submissionForm->getForm()->getId();
                 $alias                 = $submissionForm->getForm()->getAlias();
-                $idSubmissionsToDelete = [$submissionForm->getId()];
-                $this->submissionModel->getRepository()->deleteEntity($submissionForm);
-                $this->deleteFormResultsByLead($submissionForm->getForm()->getId(), $submissionForm->getForm()->getAlias(), $idSubmissionsToDelete);
+                if ($pseudonymize) {
+                    $newValueSubmissionForm   = $this->getDataFromForm($id, $alias, $submissionForm);
+                    $valueSubmissionForm      = array_merge($valueSubmissionForm, $newValueSubmissionForm);
+                }
+
+                $this->updateFormResultsByLead($id, $alias, $submissionForm, $valueSubmissionForm);
             }
         }
     }
@@ -433,5 +441,87 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
                 'submissions' => ArrayParameterType::INTEGER,
             ]
         );
+    }
+
+    /**
+     * @param array <string,string> $valuesAnonymize
+     *
+     * @throws \Doctrine\DBAL\Exception
+     */
+    private function updateFormResultsByLead(int $formId, string $formAlias, Submission $submissionForm, array $valuesAnonymize): void
+    {
+        $connection = $this->entityManager->getConnection();
+        $nameTable  = $this->submissionModel->getRepository()->getResultsTableName($formId, $formAlias);
+        $columns    = $connection->createSchemaManager()->listTableColumns($nameTable);
+
+        foreach ($columns as $column) {
+            // 1 = IntegerType
+            if (1 === $column->getType()->getBindingType()) {
+                continue;
+            }
+            $columnsToUpdate[] = $column->getName();
+        }
+        $results  = $connection->createQueryBuilder()
+            ->select('*')
+            ->from($nameTable)
+            ->where('submission_id = :submissionId')
+            ->setParameter('submissionId', $submissionForm->getId())
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        $keyValueToChange = [];
+
+        foreach ($results as $resultForm) {
+            foreach ($resultForm as $key => $value) {
+                if (!in_array($key, $columnsToUpdate)) {
+                    continue;
+                }
+
+                if (array_key_exists($value, $valuesAnonymize)) {
+                    $keyValueToChange[$key] = $valuesAnonymize[$value];
+                } else {
+                    $keyValueToChange[$key] = AnonymizeHelper::text($value);
+                }
+            }
+        }
+
+        if (empty($keyValueToChange)) {
+            return;
+        }
+
+        $connection->update(
+            $nameTable,
+            $keyValueToChange,
+            [
+                'submission_id' => $submissionForm->getId(),
+            ]
+        );
+    }
+
+    /**
+     * @return array<string,string>
+     */
+    private function getDataFromForm(int $formId, string $formAlias, Submission $submission): array
+    {
+        $connection = $this->entityManager->getConnection();
+        $nameTable  = $this->submissionModel->getRepository()->getResultsTableName($formId, $formAlias);
+        $results    = $connection->createQueryBuilder()
+            ->select('*')
+            ->from($nameTable)
+            ->where('submission_id = :submissionId')
+            ->setParameter('submissionId', $submission->getId())
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        $finalResult = [];
+        foreach ($results as $resultForm) {
+            foreach ($resultForm as $key => $value) {
+                if (!in_array($key, self::COLUMNS_NOT_ACCEPTED)) {
+                    $finalResult[$value] = AnonymizeHelper::text($value, true);
+                }
+            }
+        }
+
+        return $finalResult;
     }
 }

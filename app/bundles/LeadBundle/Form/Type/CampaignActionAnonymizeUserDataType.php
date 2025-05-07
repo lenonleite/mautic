@@ -76,12 +76,15 @@ class CampaignActionAnonymizeUserDataType extends AbstractType
             'customText',
             TextType::class,
             [
-                'label'    => false, // No label for the text
-                'data'     => $this->translator->trans('mautic.campaign.lead.action_anonymizeuserdata.alert.auditlog'),
-                'mapped'   => false, // Not mapped to any entity field
-                'attr'     => [
+                'label'      => $this->translator->trans('mautic.campaign.lead.action_anonymizeuserdata.alert.auditlog'), // No label for the text
+                'label_attr' => ['class' => 'text-muted'], // Optional: Add a custom CSS class to the label
+                'data'       => $this->translator->trans('mautic.campaign.lead.action_anonymizeuserdata.alert.auditlog'),
+                'mapped'     => false, // Not mapped to any entity field
+                'required'   => false, // Not required
+                'attr'       => [
                     'readonly' => true, // Make it read-only
                     'class'    => 'custom-text-class', // Optional: Add a custom CSS class
+                    'style'    => 'display: none;', // Optional: Add custom styles
                 ],
             ]
         );

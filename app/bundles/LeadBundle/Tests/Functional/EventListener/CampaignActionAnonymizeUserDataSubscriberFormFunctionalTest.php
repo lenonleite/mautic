@@ -250,7 +250,8 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $email2   = 'jhondoe@test.com';
         $lead1    = $this->createLead('Test1', 'Lastname1', $email1);
         $lead2    = $this->createLead('Test2', 'Lastname2', $email1);
-        $lead3    = $this->createLead('Test3', 'Lastname3', $email2);
+        $lead3    = $this->createLead('Test3', 'Lastname2', $email2);
+        $lead4    = $this->createLead('Test4', 'Lastname3', $email2);
         $company1 = $this->createCompany('Company 1', 'emailCompany@test.com');
         $company2 = $this->createCompany('Company 2', 'company2@email.com');
 
@@ -260,9 +261,12 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $lead2->setPrimaryCompany($company1);
         $lead3->setCompany($company2);
         $lead3->setPrimaryCompany($company2);
+        $lead4->setCompany($company2);
+        $lead4->setPrimaryCompany($company2);
         $this->em->persist($lead1);
         $this->em->persist($lead2);
         $this->em->persist($lead3);
+        $this->em->persist($lead4);
         $this->em->flush();
 
         $leadModel = static::getContainer()->get('mautic.lead.model.lead');
@@ -270,16 +274,21 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $leadModel->getRepository()->saveEntity($lead1);
         $leadModel->getRepository()->saveEntity($lead2);
         $leadModel->getRepository()->saveEntity($lead3);
+        $leadModel->getRepository()->saveEntity($lead4);
 
         $this->addCompanyOnLead($lead1, $company1);
         $this->addCompanyOnLead($lead2, $company1);
         $this->addCompanyOnLead($lead3, $company2);
+        $this->addCompanyOnLead($lead4, $company2);
 
         $list   = $this->createLeadList('Test List');
 
         $this->addLeadToList([$lead1, $lead2, $lead3], $list);
 
-        $resultForms = $this->createFormWithSubmissions([$lead1, $lead2, $lead3]);
+        $resultForms = $this->createFormWithSubmissions([$lead1, $lead2, $lead3], 'Test Form 11', true);
+        //        $resultForms2 = $this->createFormWithSubmissions([$lead3, $lead4],'Test Form 22', true);
+        //        $resultForms2 = $this->createFormWithSubmissions([$lead1, $lead2, $lead3],true);
+        //        dd($resultForms2);
 
         $campaign    = $this->createCampaign($list);
 
@@ -385,7 +394,9 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $resultForm1Table = $this->getResultOfNewTable($resultForms['forms'][0]);
         $resultForm2Table = $this->getResultOfNewTable($resultForms['forms'][1]);
 
-        $this->assertEmpty($resultForm1Table);
+        $this->assertNotEmpty($resultForm1Table);
+        $this->assertCount(3, $resultForm1Table);
+        $this->assertSame($resultForm1Table[1]['field_lastname'], $resultForm1Table[2]['field_lastname']);
         $this->assertEmpty($resultForm2Table);
 
         $this->assertSame($newLead1->getEmail(), $newLead2->getEmail());
@@ -548,7 +559,9 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $resultForm1Table = $this->getResultOfNewTable($resultForms['forms'][0]);
         $resultForm2Table = $this->getResultOfNewTable($resultForms['forms'][1]);
 
-        $this->assertEmpty($resultForm1Table);
+        $this->assertNotEmpty($resultForm1Table);
+        $this->assertCount(3, $resultForm1Table);
+        $this->assertNotSame($resultForm1Table[1]['field_lastname'], $resultForm1Table[2]['field_lastname']);
         $this->assertEmpty($resultForm2Table);
 
         $this->assertNotSame($newLead1->getEmail(), $newLead2->getEmail());
@@ -578,10 +591,10 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
      * @throws \Doctrine\ORM\Exception\ORMException
      * @throws \Doctrine\ORM\OptimisticLockException
      */
-    private function createFormWithSubmissions(array $leads): array
+    private function createFormWithSubmissions(array $leads, string $name ='Test Form', bool $sameName = false): array
     {
         $formPayload = [
-            'name'               => 'Test Form',
+            'name'               => 'Test Base Form',
             'formType'           => 'standalone',
             'postAction'         => 'message',
             'postActionProperty' => 'casa',
@@ -612,7 +625,7 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $clientResponse  = $this->client->getResponse();
         $response1       = json_decode($clientResponse->getContent(), true);
 
-        $formPayload['name']               = 'Test Form 2';
+        $formPayload['name']               = $name;
         $formPayload['postActionProperty'] = 'Thank you casa';
         $this->client->request('POST', '/api/forms/new', $formPayload);
 
@@ -620,15 +633,11 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $response2       = json_decode($clientResponse->getContent(), true);
         $submissionModel = static::getContainer()->get('mautic.form.model.submission');
         \assert($submissionModel instanceof SubmissionModel);
-        $submissionToDeletes = $submissionModel->getRepository()->findAll();
-        $deleteIds           = [];
-        foreach ($leads as $lead) {
-            $leadIds[] = $lead->getId();
-        }
 
         foreach ($leads as $key => $lead) {
             assert($lead instanceof Lead);
-            $submission = $this->addSubmission($response2['form']['id'], $key.$lead->getEmail(), $lead->getLastname().'_'.$key);
+            $name       = $sameName ? $lead->getLastname() : $lead->getLastname().'_'.$key;
+            $submission = $this->addSubmission($response2['form']['id'], $key.$lead->getEmail(), $name);
             $submission->setLead($lead);
             $this->em->persist($submission);
             $this->em->flush();
@@ -638,7 +647,6 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         assert($formModel instanceof FormModel);
         $formEntity1      = $formModel->getRepository()->find($response2['form']['id']);
         $submissionsForm1 = $submissionModel->getRepository()->findBy(['form' => $formEntity1]);
-        //        $this->assertSame(3, count($submissionsForm1));
         $this->assertCount(3, $submissionsForm1);
 
         foreach ($submissionsForm1 as $submission) {
