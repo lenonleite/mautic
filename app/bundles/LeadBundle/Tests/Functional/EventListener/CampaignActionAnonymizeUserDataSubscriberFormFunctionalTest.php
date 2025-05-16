@@ -656,7 +656,6 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $formEntity2      = $formModel->getRepository()->find($response1['form']['id']);
         $submissionsForm2 = $submissionModel->getRepository()->findBy(['form' => $formEntity2]);
         $this->assertCount(0, $submissionsForm2);
-        //        $this->assertSame(0, count($submissionsForm2));
 
         return [
             'forms'       => [$formEntity1, $formEntity2],

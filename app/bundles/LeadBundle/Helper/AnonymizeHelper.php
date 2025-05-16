@@ -7,8 +7,15 @@ class AnonymizeHelper
     public const PRE_DEFINED_DOMAIN       = 'ano.nym';
     public const PRE_PSEUDONYMIZED_DOMAIN = 'pseudo.nym';
 
-    public static function email(string $email, bool $pseudonymized = false, string $newDomain = self::PRE_DEFINED_DOMAIN): string|false
+    /**
+     * @param string|bool|null $email
+     */
+    public static function email($email, bool $pseudonymized = false, string $newDomain = self::PRE_DEFINED_DOMAIN): string|false
     {
+        if (empty($email)) {
+            return '';
+        }
+
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return false;
         }
