@@ -25,7 +25,7 @@ class CampaignActionAnonymizeUserDataTypeTest extends \PHPUnit\Framework\TestCas
         $fieldRepository->expects($this->exactly(2))->method('findBy')->willReturn($fieldsChoices);
         $fieldModel->expects($this->exactly(2))->method('getRepository')->willReturn($fieldRepository);
         $builder    = $this->createMock(FormBuilderInterface::class);
-        $builder->expects($this->exactly(3))->method('add');
+        $builder->expects($this->exactly(4))->method('add');
         $translator = $this->createMock(\Mautic\CoreBundle\Translation\Translator::class);
 
         $campaignActionAnonymizeUserDataType = new CampaignActionAnonymizeUserDataType($fieldModel, $translator);

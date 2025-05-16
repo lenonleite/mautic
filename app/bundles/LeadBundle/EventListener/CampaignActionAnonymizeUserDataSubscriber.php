@@ -2,7 +2,6 @@
 
 namespace Mautic\LeadBundle\EventListener;
 
-use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Types\IntegerType;
 use Doctrine\ORM\EntityManager;
 use Mautic\CampaignBundle\CampaignEvents;
@@ -422,25 +421,6 @@ class CampaignActionAnonymizeUserDataSubscriber implements EventSubscriberInterf
                 $this->auditLogModel->getRepository()->deleteEntity($auditLog);
             }
         }
-    }
-
-    /**
-     * @param array<int> $submissionsToDelete
-     */
-    private function deleteFormResultsByLead(int $formId, string $formAlias, array $submissionsToDelete): void
-    {
-        $connection = $this->entityManager->getConnection();
-        $prefix     = MAUTIC_TABLE_PREFIX;
-        $query      = "DELETE FROM {$prefix}form_results_{$formId}_{$formAlias} WHERE submission_id IN (:submissions)";
-        $connection->executeQuery(
-            $query,
-            [
-                'submissions' => $submissionsToDelete,
-            ],
-            [
-                'submissions' => ArrayParameterType::INTEGER,
-            ]
-        );
     }
 
     /**
