@@ -25,8 +25,15 @@ class AnonymizeHelper
         return $name.'@'.$newDomain;
     }
 
-    public static function text(string $text, bool $pseudonymize = false): string
+    /**
+     * @param string|bool|null $text
+     */
+    public static function text($text, bool $pseudonymize = false): string
     {
+        if (empty($text)) {
+            $text = '';
+        }
+
         if (!$pseudonymize) {
             $text = $text.time().rand(0, 999999);
         }

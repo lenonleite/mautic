@@ -814,6 +814,9 @@ class CampaignActionAnonymizeUserDataSubscriberFormFunctionalTest extends Mautic
         $lead = new Lead();
         $lead->setEmail($email);
         $lead->setFirstname($name);
+        if (!empty($lastname)) {
+            $lead->setLastname($lastname);
+        }
         $lead->setLastname($lastname);
         $lead->setDateAdded(new \DateTime());
         $lead->setDateIdentified(new \DateTime());
