@@ -3,12 +3,26 @@
 namespace Mautic\LeadBundle\Tests\Functional\Controller;
 
 use Mautic\CoreBundle\Test\MauticMysqlTestCase;
+use Mautic\LeadBundle\EventListener\PatchCompanyLogoSubscriber;
 use Mautic\UserBundle\Entity\Role;
 use Mautic\UserBundle\Entity\User;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Event\ConsoleTerminateEvent;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 class CompanyControllerTest extends MauticMysqlTestCase
 {
+    protected $useCleanupRollback = false;
+
     public const USERNAME = 'jhony';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->installCustomFieldWithEvent();
+    }
 
     public function testMergeAction(): void
     {
@@ -42,6 +56,48 @@ class CompanyControllerTest extends MauticMysqlTestCase
         return $user;
     }
 
+    public function testFormLogoUrlValidateFailByNoExist(): void
+    {
+        $content = $this->requestFormToValidate('https://nonexistent-domain.invalid/logo.JPEG');
+        self::assertStringContainsString('The logo URL is not valid. Please enter a valid URL', $content);
+    }
+
+    public function testFormLogoUrlWrongExtension(): void
+    {
+        $content = $this->requestFormToValidate('http://www.example.com/logo.gif');
+        self::assertStringContainsString('The logo URL is not valid. Please enter a valid URL', $content);
+    }
+
+    public function testFormLogoUrlValidateSuccess(): void
+    {
+        $content = $this->requestFormToValidate('https://mautic.org/wp-content/uploads/2024/10/mautic-logo.svg');
+        self::assertStringNotContainsString('The logo URL is not valid. Please enter a valid URL', $content);
+    }
+
+    private function requestFormToValidate(string $url): string
+    {
+        $crawler = $this->client->request(
+            'GET',
+            '/s/companies/new'
+        );
+        $form                                    = $crawler->filter('form[name=company]')->form();
+        $dataValues                              = $form->getPhpValues();
+        $dataValues['company']['companyname']    = 'Company mautic';
+        if (array_key_exists('companylogourl', $dataValues['company'])) {
+            $dataValues['company']['companylogourl'] = $url;
+        }
+        $form->setValues($dataValues);
+        $this->client->submit($form);
+        $clientResponse = $this->client->getResponse();
+        $this->assertEquals(200, $clientResponse->getStatusCode());
+
+        if (false === $clientResponse->getContent()) {
+            return '';
+        }
+
+        return $clientResponse->getContent();
+    }
+
     private function createRole(bool $isAdmin = false): Role
     {
         $role = new Role();
@@ -67,5 +123,25 @@ class CompanyControllerTest extends MauticMysqlTestCase
         $this->em->persist($user);
 
         return $user;
+    }
+
+    private function installCustomFieldWithEvent(): void
+    {
+        /** @var PatchCompanyLogoSubscriber $subscriber */
+        $subscriber = self::getContainer()->get(PatchCompanyLogoSubscriber::class);
+
+        // Real command with the right name so the subscriber executes
+        $command = new class('doctrine:migrations:migrate') extends Command {
+            public function __construct(string $name)
+            {
+                parent::__construct($name);
+            }
+        };
+
+        $input  = new ArrayInput([]);
+        $output = new BufferedOutput();
+        $event  = new ConsoleTerminateEvent($command, $input, $output, 0);
+
+        $subscriber->installCompanyLogoCustomField($event);
     }
 }
